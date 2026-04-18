@@ -67,7 +67,7 @@ export interface EDAResult {
 export interface LogEntry {
   timestamp: string
   message: string
-  level: 'info' | 'warn' | 'error'
+  level: 'info' | 'warn' | 'error' | 'success'
 }
 
 export type StepStatus = 'locked' | 'active' | 'completed'
@@ -128,6 +128,95 @@ export interface FeatureEngineeringResult {
   columns: string[]
 }
 
+// ─── Model Selection (Step 7) ────────────────────────────────────────────────
+export interface ModelSelectionResult {
+  selected_models: string[]
+  training_results: {
+    models_trained: string[]
+    best_model: string
+    best_score: number
+    cv_scores: Record<string, number[]>
+    training_times: Record<string, number>
+    model_paths: Record<string, string>
+  }
+  task_type: 'classification' | 'regression'
+  cv_folds: number
+  train_size: number
+}
+
+// ─── Hyperparameter Tuning (Step 8) ─────────────────────────────────────────
+export interface TuningResult {
+  strategy: string
+  results: Array<{
+    model_name: string
+    best_score: number
+    best_params: Record<string, any>
+    cv_scores: number[]
+    training_time: number
+    tuning_strategy: string
+    total_trials: number
+  }>
+  best_model: {
+    model_name: string
+    best_score: number
+    best_params: Record<string, any>
+  }
+  total_trials: number
+  completion_time: number
+}
+
+// ─── Model Evaluation (Step 9) ──────────────────────────────────────────────
+export interface EvaluationResult {
+  evaluations: Array<{
+    model_name: string
+    metrics: Record<string, number>
+    confusion_matrix?: number[][]
+    feature_importance?: Array<{ feature: string; importance: number }>
+    predictions_vs_actual?: Array<{ predicted: number; actual: number }>
+    classification_report?: Record<string, Record<string, number>>
+    roc_curve?: { fpr: number[]; tpr: number[]; auc: number }
+    pr_curve?: { precision: number[]; recall: number[]; auc: number }
+  }>
+  test_split_info: {
+    test_size: number
+    total_samples: number
+    test_samples: number
+  }
+  evaluation_timestamp: string
+  best_performing_model: string
+}
+
+// ─── Model Comparison (Step 10) ─────────────────────────────────────────────
+export interface ComparisonResult {
+  models: Array<{
+    model_name: string
+    metrics: Record<string, number>
+    ranking: number
+    score: number
+    strengths: string[]
+    weaknesses: string[]
+    recommendation: string
+    use_cases: string[]
+  }>
+  best_model: {
+    model_name: string
+    score: number
+    metrics: Record<string, number>
+  }
+  recommendations: {
+    production: { model_name: string }
+    interpretability: { model_name: string }
+    speed: { model_name: string }
+    accuracy: { model_name: string }
+  }
+  summary: {
+    total_models: number
+    task_type: 'classification' | 'regression'
+    evaluation_criteria: string[]
+    conclusion: string
+  }
+}
+
 interface PipelineState {
   // Navigation
   currentStep: number
@@ -160,6 +249,18 @@ interface PipelineState {
   featureEngineeringConfig: FeatureEngineeringConfig | null
   featureEngineeringResult: FeatureEngineeringResult | null
 
+  // Step 7 — Model Selection
+  modelSelectionResult: ModelSelectionResult | null
+
+  // Step 8 — Training & Tuning
+  tuningResult: TuningResult | null
+
+  // Step 9 — Model Evaluation
+  evaluationResult: EvaluationResult | null
+
+  // Step 10 — Model Comparison
+  comparisonResult: ComparisonResult | null
+
   // Logs
   logs: LogEntry[]
 
@@ -178,6 +279,10 @@ interface PipelineState {
   setCleaningResult: (result: CleaningResult) => void
   setFeatureEngineeringConfig: (config: FeatureEngineeringConfig) => void
   setFeatureEngineeringResult: (result: FeatureEngineeringResult) => void
+  setModelSelectionResult: (result: ModelSelectionResult) => void
+  setTuningResult: (result: TuningResult) => void
+  setEvaluationResult: (result: EvaluationResult) => void
+  setComparisonResult: (result: ComparisonResult) => void
   addLog: (message: string, level?: LogEntry['level']) => void
   clearLogs: () => void
   completeStep: (step: number) => void
@@ -219,6 +324,10 @@ export const usePipelineStore = create<PipelineState>()(
       cleaningResult: null,
       featureEngineeringConfig: null,
       featureEngineeringResult: null,
+      modelSelectionResult: null,
+      tuningResult: null,
+      evaluationResult: null,
+      comparisonResult: null,
       logs: [],
 
       setCurrentStep: (step) => set({ currentStep: step }),
@@ -235,6 +344,10 @@ export const usePipelineStore = create<PipelineState>()(
       setCleaningResult: (result) => set({ cleaningResult: result }),
       setFeatureEngineeringConfig: (config) => set({ featureEngineeringConfig: config }),
       setFeatureEngineeringResult: (result) => set({ featureEngineeringResult: result }),
+      setModelSelectionResult: (result) => set({ modelSelectionResult: result }),
+      setTuningResult: (result) => set({ tuningResult: result }),
+      setEvaluationResult: (result) => set({ evaluationResult: result }),
+      setComparisonResult: (result) => set({ comparisonResult: result }),
 
       addLog: (message, level = 'info') =>
         set((state) => ({
@@ -275,6 +388,10 @@ export const usePipelineStore = create<PipelineState>()(
           cleaningResult: null,
           featureEngineeringConfig: null,
           featureEngineeringResult: null,
+          modelSelectionResult: null,
+          tuningResult: null,
+          evaluationResult: null,
+          comparisonResult: null,
           logs: [],
         }),
     }),
@@ -297,6 +414,10 @@ export const usePipelineStore = create<PipelineState>()(
         cleaningResult: null,
         featureEngineeringConfig: null,
         featureEngineeringResult: null,
+        modelSelectionResult: null,
+        tuningResult: null,
+        evaluationResult: null,
+        comparisonResult: null,
       }),
       partialize: (state) => ({
         currentStep: state.currentStep,

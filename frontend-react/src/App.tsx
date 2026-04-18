@@ -7,15 +7,13 @@ import { Step3Target } from '@/components/steps/Step3Target'
 import { Step4EDA } from '@/components/steps/Step4EDA'
 import { Step5Cleaning } from '@/components/steps/Step5Cleaning'
 import { Step6FeatureEngineering } from '@/components/steps/Step6FeatureEngineering'
+import { Step7ModelSelection } from '@/components/steps/Step7ModelSelection'
+import { Step8TrainingTuning } from '@/components/steps/Step8TrainingTuning'
+import { Step9Evaluation } from '@/components/steps/Step9Evaluation'
+import { Step10Comparison } from '@/components/steps/Step10Comparison'
 
 function ComingSoon({ step }: { step: number }) {
   const STEP_NAMES: Record<number, string> = {
-    5: 'Data Cleaning',
-    6: 'Feature Engineering',
-    7: 'Model Selection',
-    8: 'Training & Tuning',
-    9: 'Evaluation',
-    10: 'Model Comparison',
     11: 'Explanation (XAI)',
     12: 'Model Saving',
     13: 'Monitoring',
@@ -26,7 +24,7 @@ function ComingSoon({ step }: { step: number }) {
       <div className="text-4xl mb-4">🚧</div>
       <h2 className="text-lg font-semibold text-foreground">Step {step} — {STEP_NAMES[step] ?? 'Coming Soon'}</h2>
       <p className="text-sm text-muted-foreground mt-2 max-w-sm">
-        This step is being implemented. Complete Steps 1–4 first and this panel will unlock.
+        This step is being implemented. Complete Steps 1–10 first and this panel will unlock.
       </p>
     </div>
   )
@@ -40,6 +38,10 @@ function StepContent({ step }: { step: number }) {
     case 4: return <Step4EDA />
     case 5: return <Step5Cleaning />
     case 6: return <Step6FeatureEngineering />
+    case 7: return <Step7ModelSelection />
+    case 8: return <Step8TrainingTuning />
+    case 9: return <Step9Evaluation />
+    case 10: return <Step10Comparison />
     default: return <ComingSoon step={step} />
   }
 }
@@ -49,17 +51,11 @@ function App() {
 
   return (
     <div className="h-screen w-screen flex overflow-hidden bg-background text-foreground">
-      {/* Fixed left sidebar */}
       <Sidebar />
-
-      {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Scrollable content area */}
         <main className="flex-1 overflow-y-auto">
           <StepContent step={currentStep} />
         </main>
-
-        {/* Collapsible log bar */}
         <LogBar />
       </div>
     </div>
@@ -67,4 +63,3 @@ function App() {
 }
 
 export default App
-

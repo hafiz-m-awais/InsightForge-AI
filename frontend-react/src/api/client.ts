@@ -192,3 +192,91 @@ export async function runFeatureEngineering(params: {
   })
 }
 
+// ─── Step 7 — Model Selection ────────────────────────────────────────────────
+
+export async function runModelTraining(params: {
+  dataset_path: string
+  target_col: string
+  task_type: 'classification' | 'regression'
+  models: string[]
+  hyperparameters?: Record<string, Record<string, any>>
+  cv_folds?: number
+  scoring_metric?: string
+  train_size?: number
+}) {
+  return request<{
+    models_trained: string[]
+    best_model: string
+    best_score: number
+    cv_scores: Record<string, number[]>
+    training_times: Record<string, number>
+    model_paths: Record<string, string>
+  }>('/model-training', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+// ─── Step 8 — Training & Tuning ───────────────────────────────────────────────
+
+export async function runHyperparameterTuning(params: {
+  models: string[]
+  strategy: string
+  max_trials: number
+  cv_folds: number
+  timeout_minutes: number
+  early_stopping_rounds: number
+}) {
+  return request<{
+    tuning_id: string
+    status: string
+    message: string
+  }>('/hyperparameter-tuning', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function getTrainingProgress() {
+  return request<Record<string, any>>('/training-progress')
+}
+
+// ─── Step 9 — Model Evaluation ───────────────────────────────────────────────
+
+export async function runModelEvaluation(params: any) {
+  return request<any>('/model-evaluation', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function generateEvaluationReport(params: any) {
+  const response = await fetch(`${BASE}/evaluation-report`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: response.statusText }))
+    throw new Error(err.detail || 'Report generation failed')
+  }
+  
+  return response.text()
+}
+
+// ─── Step 10 — Model Comparison ──────────────────────────────────────────────
+
+export async function selectBestModel(params: any) {
+  return request<any>('/select-best-model', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
+export async function exportModelComparison(comparisonData: any) {
+  return request<any>('/export-comparison', {
+    method: 'POST',
+    body: JSON.stringify({ comparison_data: comparisonData }),
+  })
+}
