@@ -15,6 +15,7 @@ import { Step12ModelSaving } from '@/components/steps/Step11ModelSaving'
 import { Step14ReportGeneration } from '@/components/steps/Step12ReportGeneration'
 import { Step7FeatureSelection } from '@/components/steps/Step7FeatureSelection'
 import { Step8LeakageDetection } from '@/components/steps/Step8LeakageDetection'
+import { Step15PredictionPlayground } from '@/components/steps/Step15PredictionPlayground'
 
 function ComingSoon({ step }: { step: number }) {
   const STEP_NAMES: Record<number, string> = {
@@ -49,6 +50,7 @@ function StepContent({ step }: { step: number }) {
     case 12: return <Step10Comparison />  // Comparison moved to Step 12
     case 13: return <Step12ModelSaving />  // Model Saving is Step 13
     case 14: return <Step14ReportGeneration />  // Report Generation
+    case 15: return <Step15PredictionPlayground />  // Prediction Playground
     default: return <ComingSoon step={step} />
   }
 }
