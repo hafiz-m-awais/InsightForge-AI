@@ -3,15 +3,20 @@ import numpy as np
 import os
 import uuid
 from scipy.stats.mstats import winsorize
+from typing import List, Optional
+
+from app.schemas.types import (
+    MissingStrategies, OutlierTreatments, ConstantValues, CleaningResult
+)
 
 
 def run_data_cleaning(
     dataset_path: str,
-    missing_strategies: dict,
-    outlier_treatments: dict,
-    columns_to_drop: list,
-    constant_values: dict | None = None,
-) -> dict:
+    missing_strategies: MissingStrategies,
+    outlier_treatments: OutlierTreatments,
+    columns_to_drop: List[str],
+    constant_values: Optional[ConstantValues] = None,
+) -> CleaningResult:
     """
     Apply a cleaning plan to a dataset and return a cleaned dataset + stats.
 

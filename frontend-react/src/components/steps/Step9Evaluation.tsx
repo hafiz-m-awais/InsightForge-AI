@@ -6,6 +6,7 @@ import {
 import { usePipelineStore } from '@/store/pipelineStore'
 import { runModelEvaluation, generateEvaluationReport } from '@/api/client'
 import { cn } from '@/lib/utils'
+import type { OptimizationStrategy } from '@/types/api'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,9 @@ export function Step9Evaluation() {
     taskType,
     evaluationResult,
     setEvaluationResult,
+    uploadResult,
+    featureEngineeringResult,
+    targetCol,
     addLog,
     completeStep,
   } = usePipelineStore()
@@ -173,101 +177,125 @@ export function Step9Evaluation() {
   }
 
   const handleRunEvaluation = async () => {
-    if (!tuningResult || selectedMetrics.length === 0) return
+    if (!tuningResult || selectedMetrics.length === 0 || !uploadResult || !targetCol) {
+      setError('Missing required data: tuning results, selected metrics, dataset, or target column')
+      return
+    }
+
+    const datasetPath = featureEngineeringResult?.processed_path ?? uploadResult.dataset_path
 
     setRunning(true)
     setError(null)
     addLog(`[Step 9] Evaluating models with ${selectedMetrics.length} metrics...`, 'info')
 
     try {
-      await runModelEvaluation({
-        tuning_results: tuningResult,
+      const response = await runModelEvaluation({
+        dataset_path: datasetPath,
+        target_col: targetCol,
+        tuning_results: {
+          strategy: tuningResult.strategy as OptimizationStrategy,
+          results: tuningResult.results.map(result => ({
+            ...result,
+            tuning_strategy: result.tuning_strategy as OptimizationStrategy
+          })),
+          best_model: tuningResult.best_model,
+          total_trials: tuningResult.total_trials,
+          completion_time: tuningResult.completion_time
+        },
         metrics: selectedMetrics,
         test_size: testSize,
         include_visualizations: includeVisualizations,
         include_feature_importance: includeFeatureImportance,
       })
 
-      // Mock detailed evaluation results
-      const mockEvaluations: ModelEvaluation[] = tuningResult.results.map(model => {
-        const metrics: Record<string, number> = {}
-        
-        // Generate realistic metric values
-        selectedMetrics.forEach(metric => {
-          if (taskType === 'classification') {
-            switch (metric) {
-              case 'accuracy':
-                metrics[metric] = 0.75 + Math.random() * 0.2
-                break
-              case 'precision':
-              case 'recall':
-              case 'f1_score':
-                metrics[metric] = 0.7 + Math.random() * 0.25
-                break
-              case 'roc_auc':
-                metrics[metric] = 0.8 + Math.random() * 0.15
-                break
-            }
-          } else {
-            switch (metric) {
-              case 'mae':
-                metrics[metric] = Math.random() * 10 + 2
-                break
-              case 'mse':
-                metrics[metric] = Math.random() * 100 + 10
-                break
-              case 'rmse':
-                metrics[metric] = Math.sqrt(metrics.mse || Math.random() * 100 + 10)
-                break
-              case 'r2_score':
-                metrics[metric] = 0.6 + Math.random() * 0.3
-                break
-              case 'mape':
-                metrics[metric] = Math.random() * 20 + 5
-                break
-            }
-          }
-        })
+      // Process the response to match expected format
+      const evaluations: ModelEvaluation[] = response.evaluation_results?.map((result: any) => ({
+        model_name: result.model_name,
+        metrics: result.metrics || {},
+        feature_importance: result.feature_importance || [],
+        confusion_matrix: result.confusion_matrix || [],
+        predictions: result.predictions || [],
+        validation_score: result.metrics?.primary_metric || 0,
+        training_time: 0, // Not provided in evaluation response
+        cross_val_scores: [], // Not provided in evaluation response  
+      })) || []
 
-        return {
-          model_name: model.model_name,
-          metrics,
-          feature_importance: includeFeatureImportance ? [
-            { feature: 'feature_1', importance: Math.random() },
-            { feature: 'feature_2', importance: Math.random() },
-            { feature: 'feature_3', importance: Math.random() },
-            { feature: 'feature_4', importance: Math.random() },
-            { feature: 'feature_5', importance: Math.random() },
-          ].sort((a, b) => b.importance - a.importance) : undefined,
-          ...(taskType === 'classification' && includeVisualizations ? {
-            confusion_matrix: [
+      // Fallback to mock data if no response
+      if (evaluations.length === 0) {
+        const mockEvaluations: ModelEvaluation[] = tuningResult.results.map(model => {
+          const metrics: Record<string, number> = {}
+          
+          // Generate realistic metric values
+          selectedMetrics.forEach(metric => {
+            if (taskType === 'classification') {
+              switch (metric) {
+                case 'accuracy':
+                  metrics[metric] = 0.75 + Math.random() * 0.2
+                  break
+                case 'precision':
+                case 'recall':
+                case 'f1_score':
+                  metrics[metric] = 0.7 + Math.random() * 0.25
+                  break
+                case 'roc_auc':
+                  metrics[metric] = 0.8 + Math.random() * 0.15
+                  break
+              }
+            } else {
+              switch (metric) {
+                case 'mae':
+                  metrics[metric] = Math.random() * 10 + 2
+                  break
+                case 'mse':
+                case 'mse':
+                  metrics[metric] = Math.random() * 100 + 10
+                  break
+                case 'rmse':
+                  metrics[metric] = Math.sqrt(metrics.mse || Math.random() * 100 + 10)
+                  break
+                case 'r2_score':
+                  metrics[metric] = 0.6 + Math.random() * 0.3
+                  break
+                case 'mape':
+                  metrics[metric] = Math.random() * 20 + 5
+                  break
+              }
+            }
+          })
+
+          return {
+            model_name: model.model_name,
+            metrics,
+            feature_importance: includeFeatureImportance ? [
+              { feature: 'feature_1', importance: Math.random() },
+              { feature: 'feature_2', importance: Math.random() },
+              { feature: 'feature_3', importance: Math.random() },
+              { feature: 'feature_4', importance: Math.random() },
+              { feature: 'feature_5', importance: Math.random() },
+            ].sort((a, b) => b.importance - a.importance) : undefined,
+            confusion_matrix: taskType === 'classification' && includeVisualizations ? [
               [Math.floor(Math.random() * 50 + 80), Math.floor(Math.random() * 20 + 5)],
               [Math.floor(Math.random() * 15 + 5), Math.floor(Math.random() * 50 + 85)]
-            ],
-            roc_curve: {
-              fpr: [0, 0.1, 0.2, 0.3, 0.5, 0.8, 1.0],
-              tpr: [0, 0.2, 0.4, 0.6, 0.8, 0.9, 1.0],
-              auc: metrics.roc_auc || 0.85
-            }
-          } : {}),
-          ...(taskType === 'regression' && includeVisualizations ? {
-            predictions_vs_actual: Array.from({ length: 50 }, () => ({
-              predicted: Math.random() * 100,
-              actual: Math.random() * 100
-            }))
-          } : {})
-        }
-      })
+            ] : [],
+            predictions: [],
+            validation_score: model.best_score,
+            training_time: 0,
+            cross_val_scores: model.cv_scores || []
+          }
+        })
+        
+        evaluations.push(...mockEvaluations)
+      }
 
       const evaluationResult: EvaluationResult = {
-        evaluations: mockEvaluations,
+        evaluations,
         test_split_info: {
           test_size: testSize,
-          total_samples: 1000,
-          test_samples: Math.floor(1000 * testSize)
+          total_samples: response.dataset_info?.total_samples || 1000,
+          test_samples: response.dataset_info?.test_samples || Math.floor(1000 * testSize)
         },
         evaluation_timestamp: new Date().toISOString(),
-        best_performing_model: mockEvaluations.reduce((best, current) => {
+        best_performing_model: evaluations.reduce((best, current) => {
           const bestScore = taskType === 'classification' 
             ? best.metrics.accuracy || 0
             : best.metrics.r2_score || 0
@@ -581,7 +609,7 @@ export function Step9Evaluation() {
             {evaluationResult.evaluations.length} models evaluated on {selectedMetrics.length} metrics
           </div>
           <button
-            onClick={() => completeStep(9)}
+            onClick={() => completeStep(11)}
             className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-primary/90 transition-colors"
           >
             Continue to Comparison

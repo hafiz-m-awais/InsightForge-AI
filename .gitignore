@@ -211,7 +211,6 @@ __marimo__/
 # Node / frontend build
 node_modules/
 package-lock.json
-frontend/          # compiled Vite output (built from frontend-react/)
 frontend-react/dist/
 frontend-react/node_modules/
 frontend-react/.vite/
@@ -232,6 +231,9 @@ reports/
 # Scratch / throwaway scripts
 scratch_test.py
 scratch_*.py
+
+# Backup files
+app/*_backup.py
 
 # Test files (development artifacts)
 test_*.py

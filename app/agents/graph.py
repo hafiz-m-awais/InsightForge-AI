@@ -1,5 +1,6 @@
 from langgraph.graph import StateGraph, END
 from app.agents.state import AgentState
+import json
 
 # Import nodes
 from app.agents.planner import planner_node
@@ -12,9 +13,14 @@ from app.agents.insight import insight_node
 from app.agents.report import report_node
 
 def should_iterate(state: AgentState):
-    feedback = state.get("critic_feedback", "PASS")
-    if "REJECT" in feedback:
-        return "feature_engineering" # Or ml_agent depending on logic
+    feedback = state.get("critic_feedback", '{"action": "continue"}')
+    try:
+        feedback_data = json.loads(feedback)
+        if feedback_data.get("action") == "retry":
+            return "feature_engineering"
+    except json.JSONDecodeError:
+        if "REJECT" in str(feedback).upper() or "RETRY" in str(feedback).upper():
+            return "feature_engineering"
     return "insight"
 
 def build_graph():

@@ -235,8 +235,8 @@ function OverviewCards({ result, targetCol, taskType }: {
         <div className="p-4">
           {taskType === 'classification' && td.class_counts ? (
             <div className="flex gap-6 items-center">
-              <div className="w-36 h-36 shrink-0">
-                <ResponsiveContainer width="100%" height="100%">
+              <div className="w-36 h-36 shrink-0 min-w-[144px] min-h-[144px]">
+                <ResponsiveContainer width="100%" height="100%" minWidth={144} minHeight={144}>
                   <PieChart>
                     <Pie
                       data={Object.entries(td.class_counts).map(([k, v]) => ({ name: k, value: v }))}

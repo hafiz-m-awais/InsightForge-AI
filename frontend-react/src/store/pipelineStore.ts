@@ -398,7 +398,7 @@ export const usePipelineStore = create<PipelineState>()(
     }),
     {
       name: 'insightforge-pipeline',
-      version: 2,
+      version: 3,
       migrate: () => ({
         currentStep: 1,
         stepStatuses: initialStepStatuses,
@@ -425,13 +425,26 @@ export const usePipelineStore = create<PipelineState>()(
         stepStatuses: state.stepStatuses,
         provider: state.provider,
         projectName: state.projectName,
-        uploadResult: state.uploadResult,
-        profileResult: state.profileResult,
+        // Persist uploadResult but strip the large preview array
+        uploadResult: state.uploadResult
+          ? { ...state.uploadResult, preview: [] }
+          : null,
+        // Persist profileResult but strip per-column detail arrays
+        profileResult: state.profileResult
+          ? {
+              ...state.profileResult,
+              // risks and recommendations are small; missing/dtypes omitted
+              dtypes: {},
+              missing: {},
+            }
+          : null,
         targetCol: state.targetCol,
         taskType: state.taskType,
         columnsToExclude: state.columnsToExclude,
         targetValidation: state.targetValidation,
-        edaResult: state.edaResult,
+        // edaResult is intentionally NOT persisted — correlation_matrix can be
+        // 100s of KB and will blow localStorage for wide datasets.
+        edaResult: null,
       }),
     }
   )

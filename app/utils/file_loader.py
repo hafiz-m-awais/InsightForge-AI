@@ -37,6 +37,7 @@ def save_upload(file_obj: BinaryIO, filename: str, dest_dir: str = 'datasets') -
     """
     Save an uploaded file to dest_dir. Returns metadata dict.
     Raises ValueError on unsupported extension or oversized file.
+    Streams the file in chunks to avoid loading it all into memory at once.
     """
     ext = os.path.splitext(filename)[1].lower()
     if ext not in SUPPORTED_EXTENSIONS:
@@ -46,18 +47,30 @@ def save_upload(file_obj: BinaryIO, filename: str, dest_dir: str = 'datasets') -
     safe_ext = ext.lstrip('.')
     dest_path = os.path.join(dest_dir, f"data_{file_id}.{safe_ext}")
 
-    content = file_obj.read()
-    size_mb = len(content) / (1024 * 1024)
-    if size_mb > MAX_FILE_SIZE_MB:
-        raise ValueError(f"File too large ({size_mb:.1f} MB). Maximum allowed: {MAX_FILE_SIZE_MB} MB")
-
     os.makedirs(dest_dir, exist_ok=True)
-    with open(dest_path, 'wb') as f:
-        f.write(content)
 
-    encoding = 'N/A'
-    if ext == '.csv':
-        encoding = detect_encoding(content)
+    # Stream write in 1 MB chunks; collect first 100 KB for encoding detection
+    chunk_size = 1024 * 1024  # 1 MB
+    size_bytes = 0
+    encoding_sample = b''
+
+    with open(dest_path, 'wb') as out:
+        while True:
+            chunk = file_obj.read(chunk_size)
+            if not chunk:
+                break
+            size_bytes += len(chunk)
+            if len(encoding_sample) < 100_000:
+                encoding_sample += chunk[:max(0, 100_000 - len(encoding_sample))]
+            size_mb = size_bytes / (1024 * 1024)
+            if size_mb > MAX_FILE_SIZE_MB:
+                out.close()
+                os.remove(dest_path)
+                raise ValueError(f"File too large (>{MAX_FILE_SIZE_MB} MB). Maximum allowed: {MAX_FILE_SIZE_MB} MB")
+            out.write(chunk)
+
+    size_mb = size_bytes / (1024 * 1024)
+    encoding = detect_encoding(encoding_sample) if ext == '.csv' else 'N/A'
 
     return {
         'dataset_id': file_id,
@@ -70,8 +83,11 @@ def save_upload(file_obj: BinaryIO, filename: str, dest_dir: str = 'datasets') -
 
 def get_preview(df: pd.DataFrame, n: int = 5) -> list[dict]:
     """Return first n rows as a list of dicts safe for JSON serialization."""
+    import numpy as np
     preview = df.head(n).copy()
-    # Replace NaN/Inf with None for JSON safety
+    # Replace Inf/-Inf before NaN check (pd.notna(np.inf) is True, so Inf survives without this)
+    preview = preview.replace([np.inf, -np.inf], None)
+    # Replace remaining NaN with None
     preview = preview.where(pd.notna(preview), other=None)
     return preview.to_dict(orient='records')
 

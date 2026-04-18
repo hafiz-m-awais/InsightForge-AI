@@ -12,7 +12,6 @@ import {
   Settings2,
   Trophy,
   Medal,
-  Brain,
   Save,
   FileText,
   CheckCircle2,
@@ -89,9 +88,9 @@ const STEPS = [
   { id: 10, name: 'Training & Tuning', icon: Settings2 },
   { id: 11, name: 'Evaluation', icon: Trophy },
   { id: 12, name: 'Model Comparison', icon: Medal },
-  { id: 13, name: 'Explanation (XAI)', icon: Brain },
-  { id: 14, name: 'Model Saving', icon: Save },
-  { id: 15, name: 'Report Generation', icon: FileText },
+  //{ id: 13, name: 'Explanation (XAI)', icon: Brain },
+  { id: 13, name: 'Model Saving', icon: Save },
+  { id: 14, name: 'Report Generation', icon: FileText },
 ]
 
 function StatusIcon({ status }: { status: StepStatus }) {
@@ -162,14 +161,14 @@ export function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-3 border-t border-border space-y-2.5">
+      <div className="px-4 py-2 border-t border-border space-y-2.5">
         <div className="flex items-center gap-2">
-          <Circle className="w-2 h-2 fill-emerald-400 text-emerald-400" />
+          <Circle className="w-2 h-1.5 fill-emerald-400 text-emerald-400" />
           <span className="text-[11px] text-muted-foreground">Backend Connected</span>
         </div>
         <LLMPicker />
-        <div className="pt-2 border-t border-border/50">
-          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider pb-2">Theme</div>
+        <div className="pt-2 border-t border-border/30">
+          {/* <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider pb-2">Theme</div> */}
           <ThemeToggle />
         </div>
       </div>

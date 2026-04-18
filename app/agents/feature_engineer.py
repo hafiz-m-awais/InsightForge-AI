@@ -2,25 +2,29 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler, RobustScaler
 import os
+from typing import Any, Dict, List
+
+from app.schemas.types import (
+    EncodingMap, ScalingMethod, BinningConfig, FeatureEngineeringResult
+)
 
 
 def run_feature_engineering(
     dataset_path: str,
     target_col: str,
-    encoding_map: dict,          # {col: "label" | "onehot" | "skip"}
-    scaling: str,                 # "standard" | "minmax" | "robust" | "none"
-    log_transform_cols: list,
-    bin_cols: dict,              # {col: n_bins}
-    polynomial_cols: list,
+    encoding_map: EncodingMap,
+    scaling: ScalingMethod,
+    log_transform_cols: List[str],
+    bin_cols: BinningConfig,
+    polynomial_cols: List[str],
     polynomial_degree: int = 2,
     drop_original_after_encode: bool = False,
-) -> dict:
+) -> FeatureEngineeringResult:
     """
     Apply feature engineering transformations and return processed dataset + stats.
     """
     df = pd.read_csv(dataset_path)
 
-    cols_before = len(df.columns)
     features_before = [c for c in df.columns if c != target_col]
     actions: list[str] = []
     new_features: list[str] = []
@@ -41,8 +45,10 @@ def run_feature_engineering(
     for col, n_bins in bin_cols.items():
         if col not in df.columns or col == target_col:
             continue
+        if not pd.api.types.is_numeric_dtype(df[col]):
+            continue  # Skip non-numeric columns for binning
         new_col = f"{col}_bin"
-        df[new_col] = pd.cut(df[col], bins=int(n_bins), labels=False)
+        df[new_col] = pd.cut(df[col], bins=int(n_bins), labels=False)  # type: ignore
         new_features.append(new_col)
         actions.append(f"Binned '{col}' into {n_bins} bins → '{new_col}'")
 
@@ -77,7 +83,7 @@ def run_feature_engineering(
             continue
         if method == "label":
             le = LabelEncoder()
-            df[col] = le.fit_transform(df[col].astype(str).fillna("__missing__"))
+            df[col] = np.array(le.fit_transform(df[col].astype(str).fillna("__missing__")))
             encoded_cols.append(col)
             actions.append(f"Label-encoded '{col}'")
         elif method == "onehot":
@@ -118,19 +124,20 @@ def run_feature_engineering(
     processed_path = f"{base}_engineered.csv"
     df.to_csv(processed_path, index=False)
 
-    cols_after = len(df.columns)
     features_after = [c for c in df.columns if c != target_col]
+    new_features_list = [f for f in features_after if f not in features_before]
 
-    preview_cols = list(df.columns[:20])
-    preview = df[preview_cols].head(8).replace({np.nan: None}).to_dict(orient="records")
+    # Build preview (first 10 rows as list of dicts)
+    preview_cols = [c for c in df.columns if c != target_col]
+    preview: List[Dict[str, Any]] = df[preview_cols].head(10).fillna("").astype(str).to_dict(orient="records")  # type: ignore[assignment]
 
     return {
         "processed_path": processed_path,
-        "cols_before": cols_before,
-        "cols_after": cols_after,
+        "cols_before": len(features_before),
+        "cols_after": len(features_after),
         "features_before": features_before,
         "features_after": features_after,
-        "new_features": new_features,
+        "new_features": new_features_list,
         "encoded_cols": encoded_cols,
         "scaled_cols": scaled_cols,
         "actions_taken": actions,

@@ -11,8 +11,8 @@ import { Step7ModelSelection } from '@/components/steps/Step7ModelSelection'
 import { Step8TrainingTuning } from '@/components/steps/Step8TrainingTuning'
 import { Step9Evaluation } from '@/components/steps/Step9Evaluation'
 import { Step10Comparison } from '@/components/steps/Step10Comparison'
-import { Step11ExplanationXAI } from '@/components/steps/Step11ExplanationXAI'
 import { Step12ModelSaving } from '@/components/steps/Step12ModelSaving'
+import { Step14ReportGeneration } from '@/components/steps/Step14ReportGeneration'
 import { Step7FeatureSelection } from '@/components/steps/Step7FeatureSelection'
 import { Step8LeakageDetection } from '@/components/steps/Step8LeakageDetection'
 
@@ -20,7 +20,7 @@ function ComingSoon({ step }: { step: number }) {
   const STEP_NAMES: Record<number, string> = {
     7: 'Feature Selection',
     8: 'Leakage Detection',
-    15: 'Report Generation',
+    14: 'Report Generation',
   }
   return (
     <div className="flex flex-col items-center justify-center h-full text-center p-8">
@@ -47,9 +47,8 @@ function StepContent({ step }: { step: number }) {
     case 10: return <Step8TrainingTuning />  // Training & Tuning moved to Step 10
     case 11: return <Step9Evaluation />  // Evaluation moved to Step 11
     case 12: return <Step10Comparison />  // Comparison moved to Step 12
-    case 13: return <Step11ExplanationXAI />  // XAI moved to Step 13
-    case 14: return <Step12ModelSaving />  // Model Saving moved to Step 14
-    case 15: return <ComingSoon step={15} />  // Report Generation
+    case 13: return <Step12ModelSaving />  // Model Saving is Step 13
+    case 14: return <Step14ReportGeneration />  // Report Generation
     default: return <ComingSoon step={step} />
   }
 }

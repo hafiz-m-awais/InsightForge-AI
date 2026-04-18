@@ -22,7 +22,8 @@ def evaluator_node(state: AgentState) -> dict:
         
         print(f"Best model selected: {best_name} with score {best_score}")
         
-        # We can just keep the best model info in state and save it
+        # Ensure models directory exists before saving
+        os.makedirs("models", exist_ok=True)
         model_path = f"models/best_model_{best_name}.joblib"
         joblib.dump(best_model, model_path)
         

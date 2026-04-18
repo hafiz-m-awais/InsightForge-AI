@@ -1,0 +1,274 @@
+"""
+Data pipeline routes: upload, profile, validate-target, EDA, cleaning, feature engineering.
+"""
+from fastapi import APIRouter, HTTPException, UploadFile, File
+import os
+import pandas as pd
+from pydantic import BaseModel
+
+from app.middleware import safe_execute, DatasetError, ValidationError
+from app.utils.file_loader import save_upload, load_dataset, get_preview, get_column_info
+from app.agents.profiler import run_profile
+from app.agents.eda_step import run_eda
+from app.agents.data_cleaner import run_data_cleaning
+from app.agents.feature_engineer import run_feature_engineering
+
+router = APIRouter(prefix="/api", tags=["data"])
+
+UPLOAD_DIR = "datasets"
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 1 — Upload
+# ─────────────────────────────────────────────────────────────────────────────
+
+@router.post("/upload")
+@safe_execute("dataset_upload")
+async def upload_dataset(file: UploadFile = File(...)):
+    """
+    Accept CSV / XLSX / XLS / Parquet. Returns dataset metadata + column info + preview rows.
+    """
+    if not file.filename:
+        raise ValidationError("No filename provided")
+
+    try:
+        meta = save_upload(file.file, file.filename)
+    except ValueError as exc:
+        raise ValidationError(f"Invalid file format: {str(exc)}")
+
+    try:
+        df = load_dataset(meta['dataset_path'])
+    except Exception as exc:
+        raise DatasetError(f"Could not parse uploaded file: {str(exc)}", file_path=meta['dataset_path'])
+
+    rows, cols = df.shape
+    columns = get_column_info(df)
+    preview = get_preview(df, n=5)
+
+    return {
+        "dataset_id": meta["dataset_id"],
+        "dataset_path": meta["dataset_path"],
+        "format": meta["format"],
+        "encoding": meta["encoding"],
+        "rows": rows,
+        "cols": cols,
+        "columns": columns,
+        "preview": preview,
+        "file_size_mb": meta["file_size_mb"],
+        "file_name": file.filename,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 2 — Profile
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ProfileRequest(BaseModel):
+    dataset_path: str
+    provider: str = "openrouter"
+
+
+@router.post("/profile")
+async def profile_dataset(request: ProfileRequest):
+    """
+    Compute statistical profile of the dataset and generate an AI quality summary.
+    """
+    if not os.path.exists(request.dataset_path):
+        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    try:
+        result = run_profile(request.dataset_path, request.provider)
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 3 — Validate Target
+# ─────────────────────────────────────────────────────────────────────────────
+
+class ValidateTargetRequest(BaseModel):
+    dataset_path: str
+    target_col: str
+    task_type: str  # classification | regression | timeseries
+
+
+@router.post("/validate-target")
+async def validate_target(request: ValidateTargetRequest):
+    """
+    Validate the chosen target column for the given task type.
+    Returns is_valid flag, warnings, distribution data, and imbalance ratio.
+    """
+    if not os.path.exists(request.dataset_path):
+        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+
+    try:
+        df = load_dataset(request.dataset_path)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read dataset: {exc}")
+
+    if request.target_col not in df.columns:
+        raise HTTPException(status_code=400, detail=f"Column '{request.target_col}' not found in dataset.")
+
+    target = df[request.target_col]
+    warnings = []
+    is_valid = True
+    target_distribution = {}
+    imbalance_ratio = None
+    target_stats = None
+
+    missing_pct = target.isna().mean() * 100
+    if missing_pct > 0:
+        warnings.append(f"Target column has {missing_pct:.1f}% missing values.")
+        if missing_pct > 30:
+            is_valid = False
+
+    if request.task_type == "classification":
+        n_classes = target.nunique(dropna=True)
+        if n_classes < 2:
+            warnings.append("Target has fewer than 2 unique classes.")
+            is_valid = False
+        if n_classes > 50:
+            warnings.append(f"Target has {n_classes} classes — consider treating as regression or grouping categories.")
+        vc = target.value_counts()
+        target_distribution = {str(k): int(v) for k, v in vc.items()}
+        if len(vc) >= 2:
+            imbalance_ratio = round(vc.iloc[0] / vc.iloc[-1], 2)
+            if imbalance_ratio > 10:
+                warnings.append(f"Severe class imbalance: {imbalance_ratio:.1f}:1. Consider SMOTE or class weights.")
+
+    elif request.task_type == "regression":
+        if not pd.api.types.is_numeric_dtype(target):
+            warnings.append("Target column is not numeric — regression requires a numeric target.")
+            is_valid = False
+        else:
+            from app.utils.chart_data import get_target_stats, get_distribution
+            target_stats = get_target_stats(target)
+            dist = get_distribution(target, max_bins=20)
+            target_distribution = dict(zip(dist['labels'], [int(v) for v in dist['values']]))
+
+    elif request.task_type == "timeseries":
+        date_cols = [c for c in df.columns if pd.api.types.is_datetime64_any_dtype(df[c])]
+        if not date_cols:
+            obj_cols = df.select_dtypes(include='object').columns.tolist()
+            date_cols = [c for c in obj_cols if 'date' in c.lower() or 'time' in c.lower()]
+        if not date_cols:
+            warnings.append("No datetime column detected — time-series forecasting requires a date/time column.")
+
+    ai_suggestion = (
+        f"This looks like a {'binary ' if len(target_distribution) == 2 else ''}"
+        f"{request.task_type} problem"
+        f"{' with imbalanced classes' if imbalance_ratio and imbalance_ratio > 5 else ''}."
+    )
+
+    return {
+        "is_valid": is_valid,
+        "warnings": warnings,
+        "target_distribution": target_distribution,
+        "ai_suggestion": ai_suggestion,
+        "imbalance_ratio": imbalance_ratio,
+        "target_stats": target_stats,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 4 — EDA
+# ─────────────────────────────────────────────────────────────────────────────
+
+class EDARequest(BaseModel):
+    dataset_path: str
+    target_col: str
+    task_type: str
+    columns_to_drop: list[str] = []
+    provider: str = "openrouter"
+
+
+@router.post("/eda")
+async def exploratory_data_analysis(request: EDARequest):
+    """
+    Compute full EDA: distributions, correlation matrix, outliers, leakage flags, LLM insights.
+    """
+    if not os.path.exists(request.dataset_path):
+        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    try:
+        result = run_eda(
+            dataset_path=request.dataset_path,
+            target_col=request.target_col,
+            task_type=request.task_type,
+            columns_to_drop=request.columns_to_drop,
+            provider=request.provider,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 5 — Data Cleaning
+# ─────────────────────────────────────────────────────────────────────────────
+
+class CleaningRequest(BaseModel):
+    dataset_path: str
+    missing_strategies: dict = {}
+    outlier_treatments: dict = {}
+    columns_to_drop: list[str] = []
+    constant_values: dict = {}
+
+
+@router.post("/clean")
+async def clean_dataset(request: CleaningRequest):
+    """
+    Apply the configured cleaning plan to the dataset and return a cleaned file + stats.
+    """
+    if not os.path.exists(request.dataset_path):
+        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    try:
+        result = run_data_cleaning(
+            dataset_path=request.dataset_path,
+            missing_strategies=request.missing_strategies,  # type: ignore
+            outlier_treatments=request.outlier_treatments,  # type: ignore
+            columns_to_drop=request.columns_to_drop,
+            constant_values=request.constant_values,  # type: ignore
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step 6 — Feature Engineering
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FeatureEngineeringRequest(BaseModel):
+    dataset_path: str
+    target_col: str
+    encoding_map: dict = {}
+    scaling: str = "standard"
+    log_transform_cols: list[str] = []
+    bin_cols: dict = {}
+    polynomial_cols: list[str] = []
+    polynomial_degree: int = 2
+    drop_original_after_encode: bool = False
+
+
+@router.post("/feature-engineering")
+async def feature_engineering(request: FeatureEngineeringRequest):
+    """
+    Apply feature engineering transformations and return processed dataset + stats.
+    """
+    if not os.path.exists(request.dataset_path):
+        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    try:
+        result = run_feature_engineering(
+            dataset_path=request.dataset_path,
+            target_col=request.target_col,
+            encoding_map=request.encoding_map,  # type: ignore
+            scaling=request.scaling,  # type: ignore
+            log_transform_cols=request.log_transform_cols,
+            bin_cols=request.bin_cols,  # type: ignore
+            polynomial_cols=request.polynomial_cols,
+            polynomial_degree=request.polynomial_degree,
+            drop_original_after_encode=request.drop_original_after_encode,
+        )
+        return result
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))

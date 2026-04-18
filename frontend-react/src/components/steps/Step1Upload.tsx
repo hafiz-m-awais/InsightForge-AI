@@ -16,7 +16,7 @@ const ACCEPTED = {
 const MAX_SIZE_MB = 200
 
 export function Step1Upload() {
-  const { uploadResult, setUploadResult, completeStep, addLog } = usePipelineStore()
+  const { uploadResult, setUploadResult, completeStep, addLog, reset } = usePipelineStore()
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -64,7 +64,9 @@ export function Step1Upload() {
   })
 
   const clearUpload = () => {
-    setUploadResult(null as never)
+    // Reset the entire pipeline so stale paths/results from a previous
+    // dataset don't leak into later steps when a new file is uploaded.
+    reset()
     setError(null)
     setProgress(0)
   }

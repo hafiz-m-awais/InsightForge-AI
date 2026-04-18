@@ -1,8 +1,13 @@
 import pandas as pd
 from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from xgboost import XGBClassifier, XGBRegressor
 from app.agents.state import AgentState
+
+try:
+    from xgboost import XGBClassifier, XGBRegressor
+    XGBOOST_AVAILABLE = True
+except ImportError:
+    XGBOOST_AVAILABLE = False
 
 def ml_agent_node(state: AgentState) -> dict:
     """
@@ -28,15 +33,13 @@ def ml_agent_node(state: AgentState) -> dict:
         
         models = {}
         if is_classification:
-            models = {
-                "RandomForest": RandomForestClassifier(random_state=42),
-                "XGBoost": XGBClassifier(random_state=42)
-            }
+            models = {"RandomForest": RandomForestClassifier(random_state=42)}
+            if XGBOOST_AVAILABLE:
+                models["XGBoost"] = XGBClassifier(random_state=42)
         else:
-            models = {
-                "RandomForest": RandomForestRegressor(random_state=42),
-                "XGBoost": XGBRegressor(random_state=42)
-            }
+            models = {"RandomForest": RandomForestRegressor(random_state=42)}
+            if XGBOOST_AVAILABLE:
+                models["XGBoost"] = XGBRegressor(random_state=42)
             
         results = []
         for name, model in models.items():

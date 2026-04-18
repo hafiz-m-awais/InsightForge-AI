@@ -1,8 +1,18 @@
 from app.agents.state import AgentState
-import markdown2
-import pdfkit
 import os
 import uuid
+
+try:
+    import markdown2
+    MARKDOWN2_AVAILABLE = True
+except ImportError:
+    MARKDOWN2_AVAILABLE = False
+
+try:
+    import pdfkit
+    PDFKIT_AVAILABLE = True
+except ImportError:
+    PDFKIT_AVAILABLE = False
 
 def report_node(state: AgentState) -> dict:
     """
@@ -28,7 +38,7 @@ def report_node(state: AgentState) -> dict:
             <h2>EDA Summary</h2>
             <p>Dataset Shape: {eda_summary.get('shape')}</p>
             <h2>Insights & Results</h2>
-            <div>{markdown2.markdown(insights)}</div>
+            <div>{markdown2.markdown(insights) if MARKDOWN2_AVAILABLE else insights.replace(chr(10), '<br>')}</div>
         </div>
     </body>
     </html>
@@ -38,14 +48,17 @@ def report_node(state: AgentState) -> dict:
     html_path = f"reports/report_{report_id}.html"
     pdf_path = f"reports/report_{report_id}.pdf"
     
-    with open(html_path, "w") as f:
+    os.makedirs("reports", exist_ok=True)
+    with open(html_path, "w", encoding="utf-8") as f:
         f.write(html_content)
         
     try:
-        # Generate PDF using pdfkit (requires wkhtmltopdf installed via Docker)
-        pdfkit.from_string(html_content, pdf_path)
+        if PDFKIT_AVAILABLE:
+            pdfkit.from_string(html_content, pdf_path)
+        else:
+            raise RuntimeError("pdfkit not available")
     except Exception as e:
         print(f"PDF generation failed, returning HTML only: {e}")
-        pdf_path = html_path # Fallback
+        pdf_path = html_path  # Fallback to HTML
         
     return {"report_path": pdf_path}

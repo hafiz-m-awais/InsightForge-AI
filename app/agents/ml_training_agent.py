@@ -5,17 +5,15 @@ Handles model training, cross-validation, hyperparameter optimization, and evalu
 
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Dict, List, Any, Tuple, Optional
 import logging
 from datetime import datetime
 import joblib
-import os
-import json
 from pathlib import Path
 
 # Sklearn imports
 from sklearn.model_selection import train_test_split, cross_val_score, StratifiedKFold, KFold
-from sklearn.preprocessing import LabelEncoder, StandardScaler, RobustScaler
+from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score, roc_auc_score,
     mean_squared_error, mean_absolute_error, r2_score,
@@ -32,27 +30,17 @@ from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 
 # XGBoost
 try:
-    from xgboost import XGBClassifier, XGBRegressor
+    import xgboost as _xgb  # noqa: F401
     XGBOOST_AVAILABLE = True
 except ImportError:
     XGBOOST_AVAILABLE = False
     logging.warning("XGBoost not available. Install with: pip install xgboost")
 
 # Hyperparameter optimization
-try:
-    import optuna
-    OPTUNA_AVAILABLE = True
-except ImportError:
-    OPTUNA_AVAILABLE = False
+import importlib.util as _importlib_util
+OPTUNA_AVAILABLE = _importlib_util.find_spec("optuna") is not None  # type: ignore[assignment]
+if not OPTUNA_AVAILABLE:
     logging.warning("Optuna not available. Install with: pip install optuna")
-
-# Import XAI agents
-try:
-    from .xai_agent import FeatureImportanceAgent, ModelPersistenceAgent, XAIDashboardGenerator
-    XAI_AVAILABLE = True
-except ImportError:
-    XAI_AVAILABLE = False
-    logging.warning("XAI agents not available")
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -67,15 +55,12 @@ class MLTrainingAgent:
         self.models_dir = Path("models")
         self.models_dir.mkdir(exist_ok=True)
         
-        # Initialize XAI agents if available
-        if XAI_AVAILABLE:
-            self.feature_importance_agent = FeatureImportanceAgent(random_state)
-            self.persistence_agent = ModelPersistenceAgent()
-            self.xai_dashboard_generator = XAIDashboardGenerator()
-        else:
-            self.feature_importance_agent = None
-            self.persistence_agent = None
-            self.xai_dashboard_generator = None
+        # Preprocessing artifacts
+        self.categorical_encoders = {}
+        self.imputation_values = {}
+        self.categorical_columns_seen = []
+        self.numeric_columns_seen = []
+        self.label_encoder = None
         
         # Classification models
         self.classification_models = {
@@ -102,8 +87,48 @@ class MLTrainingAgent:
         
         # Add XGBoost if available
         if XGBOOST_AVAILABLE:
+            from xgboost import XGBClassifier, XGBRegressor  # type: ignore[import]
             self.classification_models["XGBoost"] = XGBClassifier(random_state=random_state)
             self.regression_models["XGBoost"] = XGBRegressor(random_state=random_state)
+        
+        # Model name mapping for different naming conventions
+        self.model_name_mapping = {
+            # Classification models - support both camelCase and snake_case
+            "logistic_regression": "LogisticRegression",
+            "logisticregression": "LogisticRegression",
+            "random_forest": "RandomForest", 
+            "randomforest": "RandomForest",
+            "gradient_boosting": "GradientBoosting",
+            "gradientboosting": "GradientBoosting", 
+            "xgboost": "XGBoost",
+            "svm": "SVM",
+            "neural_network": "NeuralNetwork",
+            "neuralnetwork": "NeuralNetwork",
+            "naive_bayes": "NaiveBayes",
+            "naivebayes": "NaiveBayes", 
+            "knn": "KNN",
+            
+            # Regression models
+            "linear_regression": "LinearRegression",
+            "linearregression": "LinearRegression", 
+            "ridge": "Ridge",
+            "lasso": "Lasso",
+            "svr": "SVR",
+            
+            # Direct mappings (already correct format)
+            "LogisticRegression": "LogisticRegression",
+            "RandomForest": "RandomForest",
+            "GradientBoosting": "GradientBoosting",
+            "XGBoost": "XGBoost",
+            "SVM": "SVM",
+            "NeuralNetwork": "NeuralNetwork",
+            "NaiveBayes": "NaiveBayes",
+            "KNN": "KNN",
+            "LinearRegression": "LinearRegression",
+            "Ridge": "Ridge", 
+            "Lasso": "Lasso",
+            "SVR": "SVR"
+        }
         
         # Hyperparameter grids
         self.param_grids = self._get_parameter_grids()
@@ -147,16 +172,13 @@ class MLTrainingAgent:
         }
     
     def prepare_data(self, df: pd.DataFrame, target_column: str, 
-                    test_size: float = 0.2, validation_size: float = 0.2) -> Tuple[pd.DataFrame, ...]:
+                    test_size: float = 0.2, validation_size: float = 0.2) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, pd.Series]:
         """Prepare data with train/validation/test splits and basic preprocessing."""
         logger.info(f"Preparing data with target column: {target_column}")
         
         # Separate features and target
         X = df.drop(columns=[target_column])
         y = df[target_column]
-        
-        # Basic feature preprocessing
-        X = self._preprocess_features(X)
         
         # Determine if it's a classification or regression task
         self.task_type = self._determine_task_type(y)
@@ -166,7 +188,7 @@ class MLTrainingAgent:
         self.label_encoder = None
         if self.task_type == "classification" and y.dtype == 'object':
             self.label_encoder = LabelEncoder()
-            y = self.label_encoder.fit_transform(y)
+            y = pd.Series(np.array(self.label_encoder.fit_transform(y)), name=y.name)
         
         # First split: train+val vs test
         stratify = y if self.task_type == "classification" else None
@@ -183,11 +205,16 @@ class MLTrainingAgent:
             random_state=self.random_state, stratify=stratify_temp
         )
         
+        # Basic feature preprocessing
+        X_train = self._preprocess_features(X_train, fit=True)
+        X_val = self._preprocess_features(X_val, fit=False)
+        X_test = self._preprocess_features(X_test, fit=False)
+        
         logger.info(f"Data split - Train: {X_train.shape[0]}, Val: {X_val.shape[0]}, Test: {X_test.shape[0]}")
         
         return X_train, X_val, X_test, y_train, y_val, y_test
     
-    def _preprocess_features(self, X: pd.DataFrame) -> pd.DataFrame:
+    def _preprocess_features(self, X: pd.DataFrame, fit: bool = True) -> pd.DataFrame:
         """Basic feature preprocessing for ML models."""
         X = X.copy()
         
@@ -198,27 +225,66 @@ class MLTrainingAgent:
                 X = X.drop(columns=[col])
                 logger.info(f"Dropped identifier column: {col}")
         
-        # Handle missing values
-        # For numeric columns: fill with median
-        numeric_columns = X.select_dtypes(include=[np.number]).columns
-        for col in numeric_columns:
-            if X[col].isnull().any():
-                median_val = X[col].median()
-                X[col] = X[col].fillna(median_val)
-                logger.info(f"Filled missing values in {col} with median: {median_val}")
-        
-        # For categorical columns: fill with mode and encode
-        categorical_columns = X.select_dtypes(include=['object']).columns
-        for col in categorical_columns:
-            if X[col].isnull().any():
-                mode_val = X[col].mode().iloc[0] if not X[col].mode().empty else 'Unknown'
-                X[col] = X[col].fillna(mode_val)
-                logger.info(f"Filled missing values in {col} with mode: {mode_val}")
+        if fit:
+            self.numeric_columns_seen = list(X.select_dtypes(include=[np.number]).columns)
+            self.categorical_columns_seen = list(X.select_dtypes(include=['object']).columns)
+            self.imputation_values = {}
+            self.categorical_encoders = {}
             
-            # Simple label encoding for categorical variables
-            label_encoder = LabelEncoder()
-            X[col] = label_encoder.fit_transform(X[col].astype(str))
-            logger.info(f"Encoded categorical column: {col}")
+            # Numeric imputation
+            for col in self.numeric_columns_seen:
+                median_val = X[col].median()
+                if pd.isna(median_val):
+                    median_val = 0  # Fallback for completely empty columns
+                self.imputation_values[col] = median_val
+                if X[col].isnull().any():
+                    X[col] = X[col].fillna(median_val)
+            
+            # Categorical imputation and encoding
+            for col in self.categorical_columns_seen:
+                mode_s = X[col].mode()
+                mode_val = mode_s.iloc[0] if not mode_s.empty else 'Unknown'
+                self.imputation_values[col] = mode_val
+                
+                if X[col].isnull().any():
+                    X[col] = X[col].fillna(mode_val)
+                
+                encoder = LabelEncoder()
+                # Create 'Unknown' category placeholder by keeping the string type handling robust
+                X[col] = pd.Series(np.array(encoder.fit_transform(X[col].astype(str))), index=X.index, dtype=int)
+                
+                # Add 'Unknown' fallback handling to internal classes
+                classes = list(encoder.classes_)
+                if 'Unknown' not in classes:
+                    classes.append('Unknown')
+                encoder.classes_ = np.array(classes)
+                
+                self.categorical_encoders[col] = encoder
+                logger.info(f"Encoded categorical column: {col}")
+                
+        else:
+            # Apply seen transformations for numeric
+            for col in self.numeric_columns_seen:
+                if col in X.columns:
+                    X[col] = X[col].fillna(self.imputation_values.get(col, 0))
+            
+            # Apply seen transformations for categorical
+            for col in self.categorical_columns_seen:
+                if col in X.columns:
+                    X[col] = X[col].fillna(self.imputation_values.get(col, 'Unknown'))
+                    
+                    if col in self.categorical_encoders:
+                        encoder = self.categorical_encoders[col]
+                        # Handle unseen categories by mapping them to 'Unknown'
+                        X_series = X[col].astype(str)
+                        known_classes = set(encoder.classes_)
+                        X_series = X_series.map(lambda s: s if s in known_classes else 'Unknown')
+                        
+                        try:
+                            X[col] = pd.Series(encoder.transform(X_series), index=X.index).astype(int)
+                        except ValueError as e:
+                            logger.warning(f"Unknown category handling failed in {col}: {e}. Fallback to 0.")
+                            X[col] = 0
         
         # Ensure all columns are numeric
         for col in X.columns:
@@ -226,13 +292,11 @@ class MLTrainingAgent:
                 # Try to convert to numeric, if fails encode
                 try:
                     X[col] = pd.to_numeric(X[col])
-                except:
-                    label_encoder = LabelEncoder()
-                    X[col] = label_encoder.fit_transform(X[col].astype(str))
-                    logger.info(f"Force-encoded column: {col}")
+                except Exception:
+                    logger.warning(f"Could not convert {col} to numeric")
+                    X[col] = 0
         
         logger.info(f"Preprocessing complete. Final shape: {X.shape}")
-        logger.info(f"Final columns: {list(X.columns)}")
         
         return X
     
@@ -243,9 +307,16 @@ class MLTrainingAgent:
         else:
             return "regression"
     
+    def _normalize_model_name(self, model_name: str) -> str:
+        """Normalize model name to standard format."""
+        normalized = self.model_name_mapping.get(model_name.lower(), model_name)
+        if normalized != model_name and normalized in self.model_name_mapping.values():
+            logger.info(f"Mapped model name: {model_name} -> {normalized}")
+        return normalized
+    
     def train_models(self, X_train: pd.DataFrame, y_train: pd.Series,
                     X_val: pd.DataFrame, y_val: pd.Series,
-                    models_to_train: List[str] = None,
+                    models_to_train: Optional[List[str]] = None,
                     cv_folds: int = 5) -> Dict[str, Any]:
         """Train multiple models with cross-validation."""
         if models_to_train is None:
@@ -254,6 +325,13 @@ class MLTrainingAgent:
             else:
                 models_to_train = list(self.regression_models.keys())
         
+        # Normalize model names
+        normalized_models = []
+        for model_name in models_to_train:
+            normalized_name = self._normalize_model_name(model_name)
+            normalized_models.append(normalized_name)
+        
+        models_to_train = normalized_models
         logger.info(f"Training {len(models_to_train)} models for {self.task_type}")
         
         results = {
@@ -322,9 +400,14 @@ class MLTrainingAgent:
                 results["val_scores"][model_name] = 0.0
         
         results["best_model"] = best_model_name
-        results["best_score"] = best_score
+        # Handle -inf values that are not JSON serializable
+        if best_model_name is None or np.isinf(best_score):
+            results["best_score"] = 0.0
+            logger.warning("No models were successfully trained. Setting best_score to 0.0")
+        else:
+            results["best_score"] = best_score
         
-        logger.info(f"Training complete. Best model: {best_model_name} (score: {best_score:.4f})")
+        logger.info(f"Training complete. Best model: {best_model_name} (score: {results['best_score']:.4f})")
         return results
     
     def _get_scoring_metric(self) -> str:
@@ -334,7 +417,7 @@ class MLTrainingAgent:
     def _calculate_score(self, y_true, y_pred) -> float:
         """Calculate validation score."""
         if self.task_type == "classification":
-            return accuracy_score(y_true, y_pred)
+            return float(accuracy_score(y_true, y_pred))
         else:
             return -mean_squared_error(y_true, y_pred)  # Negative MSE for consistency
     
@@ -349,9 +432,8 @@ class MLTrainingAgent:
         logger.info(f"Optimizing hyperparameters for {model_name} using {strategy}")
         
         if strategy == "bayesian" and not OPTUNA_AVAILABLE:
-            logger.warning("Optuna not available, falling back to random search")
+            logger.warning("Optuna not available, falling back to random_search")
             strategy = "random_search"
-        
         model_dict = (self.classification_models if self.task_type == "classification" 
                      else self.regression_models)
         
@@ -373,6 +455,7 @@ class MLTrainingAgent:
     def _bayesian_optimization(self, base_model, param_grid: Dict, X_train: pd.DataFrame, 
                               y_train: pd.Series, max_trials: int) -> Dict[str, Any]:
         """Perform Bayesian optimization using Optuna."""
+        import optuna  # type: ignore  # noqa: PLC0415
         def objective(trial):
             params = {}
             for param_name, param_values in param_grid.items():
@@ -441,7 +524,7 @@ class MLTrainingAgent:
         }
     
     def evaluate_model(self, model_path: str, X_test: pd.DataFrame, y_test: pd.Series,
-                      model_name: str = None, X_train: pd.DataFrame = None) -> Dict[str, Any]:
+                      model_name: Optional[str] = None, X_train: Optional[pd.DataFrame] = None) -> Dict[str, Any]:
         """Comprehensive model evaluation with XAI features."""
         logger.info(f"Evaluating model: {model_path}")
         
@@ -463,7 +546,7 @@ class MLTrainingAgent:
             metrics = self._calculate_regression_metrics(y_test, y_pred)
         
         # Basic feature importance
-        feature_importance = self._get_feature_importance(model, X_test.columns)
+        feature_importance = self._get_feature_importance(model, list(X_test.columns))
         
         evaluation_result = {
             "model_name": model_name or "Unknown",
@@ -484,41 +567,6 @@ class MLTrainingAgent:
                 precision, recall, _ = precision_recall_curve(y_test, y_prob[:, 1])
                 evaluation_result["roc_curve"] = {"fpr": fpr.tolist(), "tpr": tpr.tolist()}
                 evaluation_result["pr_curve"] = {"precision": precision.tolist(), "recall": recall.tolist()}
-        
-        # Enhanced XAI features if available and X_train provided
-        if self.feature_importance_agent and X_train is not None:
-            try:
-                # Comprehensive feature importance analysis
-                importance_results = self.feature_importance_agent.calculate_comprehensive_importance(
-                    model, X_train, X_test, y_test, model_name or "Model"
-                )
-                evaluation_result["xai_analysis"] = importance_results
-                
-                # Generate learning curves
-                if len(X_train) > 50:  # Only if sufficient data
-                    learning_curves = self.feature_importance_agent.generate_learning_curves(
-                        model, X_train, y_test, model_name or "Model"
-                    )
-                    evaluation_result["learning_curves"] = learning_curves
-                
-                # Enhanced visualizations
-                if self.task_type == "classification":
-                    # Enhanced confusion matrix
-                    enhanced_cm = self.feature_importance_agent.generate_enhanced_confusion_matrix(
-                        y_test, y_pred, model_name or "Model"
-                    )
-                    if enhanced_cm:
-                        evaluation_result["enhanced_confusion_matrix"] = enhanced_cm
-                    
-                    # ROC/PR curves with enhanced styling
-                    if y_prob is not None and y_prob.shape[1] == 2:
-                        roc_pr_plots = self.feature_importance_agent.generate_roc_pr_curves(
-                            y_test, y_prob[:, 1], model_name or "Model"
-                        )
-                        evaluation_result["roc_pr_plots"] = roc_pr_plots
-                        
-            except Exception as e:
-                logger.warning(f"XAI analysis failed: {str(e)}")
         
         logger.info(f"Evaluation complete. Primary metric: {metrics.get('primary_metric', 'N/A')}")
         return evaluation_result

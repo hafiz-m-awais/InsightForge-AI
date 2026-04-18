@@ -1,3 +1,12 @@
+// ─── Type imports ─────────────────────────────────────────────────────────────
+import type {
+  ModelEvaluationRequest,
+  ModelEvaluationResponse,
+  EvaluationReportRequest,
+  EvaluationReportResponse,
+  TrainingProgress
+} from '@/types/api'
+
 const BASE = '/api'
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -9,8 +18,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     },
   })
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }))
-    throw new Error(err.detail || 'Request failed')
+    let errDetail = res.statusText
+    try {
+      const errObj = await res.json()
+      errDetail = Array.isArray(errObj.detail) 
+        ? errObj.detail.map((e: any) => `${e.loc.join('.')}: ${e.msg}`).join(', ') 
+        : (errObj.detail || res.statusText)
+    } catch (e) {}
+    throw new Error(errDetail)
   }
   return res.json()
 }
@@ -220,7 +235,9 @@ export async function runModelTraining(params: {
 // ─── Step 8 — Training & Tuning ───────────────────────────────────────────────
 
 export async function runHyperparameterTuning(params: {
-  models: string[]
+  dataset_path: string
+  target_col: string
+  model_name: string
   strategy: string
   max_trials: number
   cv_folds: number
@@ -237,20 +254,20 @@ export async function runHyperparameterTuning(params: {
   })
 }
 
-export async function getTrainingProgress() {
-  return request<Record<string, any>>('/training-progress')
+export async function getTrainingProgress(): Promise<TrainingProgress> {
+  return request<TrainingProgress>('/training-progress')
 }
 
 // ─── Step 9 — Model Evaluation ───────────────────────────────────────────────
 
-export async function runModelEvaluation(params: any) {
-  return request<any>('/model-evaluation', {
+export async function runModelEvaluation(params: ModelEvaluationRequest): Promise<ModelEvaluationResponse> {
+  return request<ModelEvaluationResponse>('/model-evaluation', {
     method: 'POST',
     body: JSON.stringify(params),
   })
 }
 
-export async function generateEvaluationReport(params: any) {
+export async function generateEvaluationReport(params: EvaluationReportRequest): Promise<EvaluationReportResponse> {
   const response = await fetch(`${BASE}/evaluation-report`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

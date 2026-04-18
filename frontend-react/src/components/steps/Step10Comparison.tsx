@@ -5,7 +5,6 @@ import {
   Target, Zap, Sparkles, FileText
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
-import { exportModelComparison } from '@/api/client'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -179,8 +178,6 @@ export function Step10Comparison() {
     addLog('[Step 10] Exporting model comparison...', 'info')
 
     try {
-      await exportModelComparison(comparisonResult)
-      
       // Convert store ComparisonResult to LocalComparisonResult format for CSV
       const localComparison: LocalComparisonResult = {
         models: comparisonResult.models,
@@ -599,7 +596,7 @@ export function Step10Comparison() {
             {comparisonResult.models.length} models compared • Winner: {comparisonResult.best_model.model_name}
           </div>
           <button
-            onClick={() => completeStep(10)}
+            onClick={() => completeStep(12)}
             className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-primary/90 transition-colors"
           >
             Complete Analysis

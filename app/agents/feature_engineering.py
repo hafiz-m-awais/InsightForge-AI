@@ -16,25 +16,27 @@ def feature_engineering_node(state: AgentState) -> dict:
     try:
         df = pd.read_csv(dataset_path)
         
+        # Use target_col from state if available; fall back to last column
+        target_col = state.get("target_col") or df.columns[-1]
+        
         # Identify categorical and numerical columns
         cat_cols = df.select_dtypes(include=['object', 'category']).columns
         num_cols = df.select_dtypes(include=['int64', 'float64']).columns
         
-        # Simple processing
-        le = LabelEncoder()
+        # Use a separate LabelEncoder instance per column to avoid cross-column contamination
+        label_encoders = {}
         for col in cat_cols:
             df[col] = df[col].fillna('Missing')
+            le = LabelEncoder()
             df[col] = le.fit_transform(df[col].astype(str))
+            label_encoders[col] = le
             
         scaler = StandardScaler()
         for col in num_cols:
             # fill numerical NA with median
             df[col] = df[col].fillna(df[col].median())
-            # We skip scaling target if it's the last column, but for MVP we might just scale all features except the last
             
-        # Assume last column is target for simplicity
-        target_col = df.columns[-1]
-        features = list(df.columns[:-1])
+        features = [c for c in df.columns if c != target_col]
         
         if target_col in num_cols and df[target_col].nunique() < 20: # heuristic for classification
             pass # keep it as is

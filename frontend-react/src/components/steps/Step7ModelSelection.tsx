@@ -437,9 +437,15 @@ export function Step7ModelSelection() {
             <div className="space-y-3">
               {modelSelectionResult.selected_models.map((modelName) => {
                 const model = availableModels[modelName]
-                const scores = modelSelectionResult.training_results.cv_scores[modelName] || []
+                // Try both original name and normalized name for CV scores
+                const normalizedModelName = modelSelectionResult.training_results.models_trained.find(
+                  trainedName => trainedName.toLowerCase().replace('_', '') === modelName.toLowerCase().replace('_', '')
+                ) || modelName
+                const scores = modelSelectionResult.training_results.cv_scores[normalizedModelName] || 
+                              modelSelectionResult.training_results.cv_scores[modelName] || []
                 const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0
-                const isBest = modelName === modelSelectionResult.training_results.best_model
+                const isBest = normalizedModelName === modelSelectionResult.training_results.best_model ||
+                              modelName === modelSelectionResult.training_results.best_model
                 
                 return (
                   <div
@@ -458,7 +464,8 @@ export function Step7ModelSelection() {
                             {isBest && <span className="text-xs bg-primary/20 text-primary px-2 py-0.5 rounded">Best</span>}
                           </h5>
                           <p className="text-xs text-muted-foreground">
-                            {cvFolds}-fold CV • {(modelSelectionResult.training_results.training_times[modelName] / 1000 || 0).toFixed(1)}s
+                            {cvFolds}-fold CV • {(modelSelectionResult.training_results.training_times[normalizedModelName] || 
+                                                  modelSelectionResult.training_results.training_times[modelName] || 0).toFixed(1)}s
                           </p>
                         </div>
                       </div>
@@ -484,7 +491,7 @@ export function Step7ModelSelection() {
             {modelSelectionResult.selected_models.length} models trained • Best: {modelSelectionResult.training_results.best_model}
           </div>
           <button
-            onClick={() => completeStep(7)}
+            onClick={() => completeStep(9)}
             className="flex items-center gap-2 bg-primary text-primary-foreground px-4 py-1.5 rounded-lg text-xs font-medium hover:bg-primary/90 transition-colors"
           >
             Continue to Tuning
