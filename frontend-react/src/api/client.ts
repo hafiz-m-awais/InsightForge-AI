@@ -57,14 +57,26 @@ export async function uploadDataset(file: File, onProgress?: (pct: number) => vo
 
     xhr.addEventListener('load', () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        resolve(JSON.parse(xhr.responseText))
+        try {
+          resolve(JSON.parse(xhr.responseText))
+        } catch {
+          reject(new Error('Server returned an invalid response.'))
+        }
+      } else if (xhr.status === 502 || xhr.status === 503 || xhr.status === 0) {
+        reject(new Error('Cannot reach the backend server. Make sure it is running on port 8001.'))
       } else {
-        const err = JSON.parse(xhr.responseText || '{}')
-        reject(new Error(err.detail || 'Upload failed'))
+        let detail = 'Upload failed'
+        try {
+          const err = JSON.parse(xhr.responseText)
+          if (err?.detail) {
+            detail = typeof err.detail === 'string' ? err.detail : (err.detail?.message ?? JSON.stringify(err.detail))
+          }
+        } catch { /* non-JSON body */ }
+        reject(new Error(detail))
       }
     })
 
-    xhr.addEventListener('error', () => reject(new Error('Network error during upload')))
+    xhr.addEventListener('error', () => reject(new Error('Cannot reach the backend server. Make sure it is running on port 8001.')))
     xhr.send(formData)
   })
 }
