@@ -6,8 +6,8 @@ import {
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import { cn } from '@/lib/utils'
+import { PredictionPlayground } from '@/components/steps/Step13PredictionPlayground'
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 interface DiskModel {
   filename: string
@@ -20,8 +20,7 @@ interface DiskModel {
   metadata: Record<string, unknown>
 }
 
-// â”€â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
+// Helpers
 function formatSize(mb: number) {
   if (mb < 1) return `${(mb * 1024).toFixed(0)} KB`
   return `${mb.toFixed(1)} MB`
@@ -36,8 +35,7 @@ function triggerDownload(filepath: string, filename: string) {
   document.body.removeChild(a)
 }
 
-// â”€â”€â”€ Model Card â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
+// Model Card 
 function ModelCard({
   model,
   selected,
@@ -136,8 +134,7 @@ function ModelCard({
   )
 }
 
-// â”€â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
+//  Main Component 
 export function Step12ModelSaving() {
   const { tuningResult, comparisonResult, addLog, completeStep } = usePipelineStore()
 
@@ -345,6 +342,22 @@ export function Step12ModelSaving() {
             ))}
           </div>
         )}
+
+        {/* Prediction Playground – shown when exactly one model is selected */}
+        {selectedCount === 1 && (() => {
+          const selectedFilename = [...selected][0]
+          const selectedModel = filteredModels.find(m => m.filename === selectedFilename)
+          const features = Array.isArray((selectedModel?.metadata as any)?.features)
+            ? ((selectedModel!.metadata as any).features as string[])
+            : []
+          return (
+            <PredictionPlayground
+              modelPath={selectedModel?.filepath ?? null}
+              modelFilename={selectedModel?.filename ?? null}
+              metadataFeatures={features}
+            />
+          )
+        })()}
 
         {/* Download action bar (sticky) */}
         {selectedCount > 0 && (

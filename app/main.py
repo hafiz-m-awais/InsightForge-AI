@@ -6,7 +6,7 @@ import os
 import logging
 from dotenv import load_dotenv
 
-from app.routers import data, pipeline, files, training, evaluation, analysis
+from app.routers import data, pipeline, files, training, evaluation, analysis, playground
 
 # Load environment variables
 load_dotenv()
@@ -90,3 +90,4 @@ app.include_router(files.router)
 app.include_router(training.router)
 app.include_router(evaluation.router)
 app.include_router(analysis.router)
+app.include_router(playground.router)

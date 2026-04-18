@@ -297,3 +297,20 @@ export async function exportModelComparison(comparisonData: any) {
     body: JSON.stringify({ comparison_data: comparisonData }),
   })
 }
+
+// ─── Step 13 — Prediction Playground ─────────────────────────────────────────
+
+export async function makePrediction(
+  modelPath: string,
+  features: Record<string, string | number>
+) {
+  return request<{
+    prediction: string | number
+    type: 'classification' | 'regression'
+    probabilities?: Record<string, number>
+    confidence?: number
+  }>('/predict', {
+    method: 'POST',
+    body: JSON.stringify({ model_path: modelPath, features }),
+  })
+}
