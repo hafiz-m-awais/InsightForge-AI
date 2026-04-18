@@ -26,6 +26,7 @@ import {
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import type { StepStatus } from '@/store/pipelineStore'
+import { ThemeToggle } from '@/components/ui/theme-toggle'
 
 function ProjectNameEditor() {
   const { projectName, setProjectName } = usePipelineStore()
@@ -79,17 +80,18 @@ const STEPS = [
   { id: 1, name: 'Data Upload', icon: Upload },
   { id: 2, name: 'Data Profiling', icon: BarChart2 },
   { id: 3, name: 'Target Selection', icon: Target },
-  { id: 4, name: 'EDA', icon: TrendingUp },
+  { id: 4, name: 'EDA Analysis', icon: TrendingUp },
   { id: 5, name: 'Data Cleaning', icon: Wrench },
   { id: 6, name: 'Feature Engineering', icon: Layers },
-  { id: 7, name: 'Leakage Check', icon: Shield },
-  { id: 8, name: 'Model Selection', icon: Cpu },
-  { id: 9, name: 'Training & Tuning', icon: Settings2 },
-  { id: 10, name: 'Evaluation', icon: Trophy },
-  { id: 11, name: 'Model Comparison', icon: Medal },
-  { id: 12, name: 'Explanation (XAI)', icon: Brain },
-  { id: 13, name: 'Model Saving', icon: Save },
-  { id: 14, name: 'Report Generation', icon: FileText },
+  { id: 7, name: 'Feature Selection', icon: Zap },
+  { id: 8, name: 'Leakage Detection', icon: Shield },
+  { id: 9, name: 'Model Selection', icon: Cpu },
+  { id: 10, name: 'Training & Tuning', icon: Settings2 },
+  { id: 11, name: 'Evaluation', icon: Trophy },
+  { id: 12, name: 'Model Comparison', icon: Medal },
+  { id: 13, name: 'Explanation (XAI)', icon: Brain },
+  { id: 14, name: 'Model Saving', icon: Save },
+  { id: 15, name: 'Report Generation', icon: FileText },
 ]
 
 function StatusIcon({ status }: { status: StepStatus }) {
@@ -166,6 +168,10 @@ export function Sidebar() {
           <span className="text-[11px] text-muted-foreground">Backend Connected</span>
         </div>
         <LLMPicker />
+        <div className="pt-2 border-t border-border/50">
+          <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider pb-2">Theme</div>
+          <ThemeToggle />
+        </div>
       </div>
     </aside>
   )

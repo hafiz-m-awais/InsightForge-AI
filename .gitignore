@@ -233,6 +233,14 @@ reports/
 scratch_test.py
 scratch_*.py
 
+# Test files (development artifacts)
+test_*.py
+test_*.html
+
+# Generated content
+plots/
+dashboards/
+
 # OS
 .DS_Store
 Thumbs.db

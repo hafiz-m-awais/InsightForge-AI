@@ -304,6 +304,7 @@ const initialStepStatuses: Record<number, StepStatus> = {
   12: 'locked',
   13: 'locked',
   14: 'locked',
+  15: 'locked',
 }
 
 export const usePipelineStore = create<PipelineState>()(

@@ -25,3 +25,5 @@ openpyxl
 xlrd
 pyarrow
 scipy
+optuna
+shap
