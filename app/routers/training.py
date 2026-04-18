@@ -10,10 +10,25 @@ import pandas as pd
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor
 
+from pathlib import Path
 from app.agents.ml_training_agent import MLTrainingAgent
 
 router = APIRouter(prefix="/api", tags=["training"])
 logger = logging.getLogger(__name__)
+
+# Bounded thread-pool shared across all training handlers
+_executor = ThreadPoolExecutor(max_workers=4)
+
+UPLOAD_DIR = Path("datasets").resolve()
+
+
+def _safe_dataset_path(raw: str) -> Path:
+    """Resolve a client-supplied path safely inside UPLOAD_DIR."""
+    candidate = (UPLOAD_DIR / Path(raw).name).resolve()
+    if not candidate.is_relative_to(UPLOAD_DIR):
+        raise ValueError("Invalid dataset path")
+    return candidate
+
 
 # In-memory store for hyperparameter tuning progress (job_id -> progress dict)
 # Shared reference — also exported so main.py can pass it to the progress endpoint.
@@ -73,12 +88,15 @@ async def model_training(request: ModelTrainingRequest):
     try:
         ml_agent = MLTrainingAgent()
 
-        if not os.path.exists(request.dataset_path):
+        try:
+            dataset_path = _safe_dataset_path(request.dataset_path)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid dataset path")
+        if not dataset_path.exists():
             raise HTTPException(status_code=404, detail="Dataset not found")
 
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            df = await loop.run_in_executor(executor, pd.read_csv, request.dataset_path)
+        loop = asyncio.get_running_loop()
+        df = await loop.run_in_executor(_executor, pd.read_csv, dataset_path)
 
         if request.target_col not in df.columns:
             raise HTTPException(
@@ -95,24 +113,22 @@ async def model_training(request: ModelTrainingRequest):
         test_size = 1.0 - request.train_size
         validation_size = 0.15
 
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            def prepare_data_wrapper():
-                return ml_agent.prepare_data(
-                    df=df,
-                    target_column=request.target_col,
-                    test_size=test_size,
-                    validation_size=validation_size,
-                )
-
-            X_train, X_val, X_test, y_train, y_val, y_test = await loop.run_in_executor(
-                executor, prepare_data_wrapper
+        def prepare_data_wrapper():
+            return ml_agent.prepare_data(
+                df=df,
+                target_column=request.target_col,
+                test_size=test_size,
+                validation_size=validation_size,
             )
 
-            results = await loop.run_in_executor(
-                executor, ml_agent.train_models, X_train, y_train, X_val, y_val,
-                request.models, request.cv_folds,
-            )
+        X_train, X_val, X_test, y_train, y_val, y_test = await loop.run_in_executor(
+            _executor, prepare_data_wrapper
+        )
+
+        results = await loop.run_in_executor(
+            _executor, ml_agent.train_models, X_train, y_train, X_val, y_val,
+            request.models, request.cv_folds,
+        )
 
         return results
 
@@ -144,12 +160,15 @@ async def hyperparameter_tuning(request: HyperparameterTuningRequest):
     try:
         ml_agent = MLTrainingAgent()
 
-        if not os.path.exists(request.dataset_path):
+        try:
+            dataset_path = _safe_dataset_path(request.dataset_path)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid dataset path")
+        if not dataset_path.exists():
             raise HTTPException(status_code=404, detail="Dataset not found")
 
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            df = await loop.run_in_executor(executor, pd.read_csv, request.dataset_path)
+        loop = asyncio.get_running_loop()
+        df = await loop.run_in_executor(_executor, pd.read_csv, dataset_path)
 
         X_train, X_val, X_test, y_train, y_val, y_test = ml_agent.prepare_data(
             df, request.target_col, test_size=0.2, validation_size=0.15
@@ -169,12 +188,10 @@ async def hyperparameter_tuning(request: HyperparameterTuningRequest):
         }
         _tuning_progress["latest"] = _tuning_progress[job_id]
 
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            optimization_results = await loop.run_in_executor(
-                executor, ml_agent.optimize_hyperparameters, X_train, y_train,
-                request.model_name, request.strategy, request.max_trials,
-            )
+        optimization_results = await loop.run_in_executor(
+            _executor, ml_agent.optimize_hyperparameters, X_train, y_train,
+            request.model_name, request.strategy, request.max_trials,
+        )
 
         elapsed = round(_time.time() - start_time, 1)
         result = {

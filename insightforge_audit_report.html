@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>InsightForge AI — Codebase Audit Report</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #222535;
+      --border: #2e3150;
+      --accent: #6366f1;
+      --accent2: #8b5cf6;
+      --green: #22c55e;
+      --yellow: #eab308;
+      --red: #ef4444;
+      --orange: #f97316;
+      --blue: #3b82f6;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --text-dim: #64748b;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; line-height: 1.6; }
+
+    /* ── Header ── */
+    .hero {
+      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #1e1b4b 100%);
+      border-bottom: 1px solid var(--accent);
+      padding: 60px 40px;
+      text-align: center;
+    }
+    .hero h1 { font-size: 2.8rem; font-weight: 700; color: #fff; letter-spacing: -1px; }
+    .hero h1 span { color: var(--accent); }
+    .hero p { color: var(--text-muted); font-size: 1.1rem; margin-top: 10px; }
+    .meta-row { display: flex; justify-content: center; gap: 40px; margin-top: 24px; flex-wrap: wrap; }
+    .meta-item { text-align: center; }
+    .meta-item .val { font-size: 1.8rem; font-weight: 700; color: var(--accent); }
+    .meta-item .lbl { font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; }
+
+    /* ── Layout ── */
+    .container { max-width: 1100px; margin: 0 auto; padding: 40px 24px 80px; }
+    section { margin-bottom: 52px; }
+    h2 { font-size: 1.5rem; color: var(--accent); border-left: 4px solid var(--accent); padding-left: 14px; margin-bottom: 24px; }
+    h3 { font-size: 1.05rem; color: var(--text); margin-bottom: 10px; font-weight: 600; }
+
+    /* ── Cards ── */
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 22px; margin-bottom: 18px; position: relative; }
+    .card:hover { border-color: var(--accent); transition: border-color .2s; }
+    .card .tag {
+      display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 3px 10px; border-radius: 99px;
+      text-transform: uppercase; letter-spacing: .8px; margin-bottom: 10px;
+    }
+    .tag-critical { background: rgba(239,68,68,.15); color: var(--red); border: 1px solid rgba(239,68,68,.35); }
+    .tag-high     { background: rgba(249,115,22,.15); color: var(--orange); border: 1px solid rgba(249,115,22,.35); }
+    .tag-medium   { background: rgba(234,179,8,.15);  color: var(--yellow); border: 1px solid rgba(234,179,8,.35); }
+    .tag-low      { background: rgba(59,130,246,.15); color: var(--blue);   border: 1px solid rgba(59,130,246,.35); }
+    .tag-feature  { background: rgba(99,102,241,.15); color: var(--accent); border: 1px solid rgba(99,102,241,.35); }
+
+    .card p { color: var(--text-muted); font-size: 0.92rem; margin-bottom: 8px; }
+    .card code { background: var(--surface2); border: 1px solid var(--border); border-radius: 5px; padding: 2px 7px; font-size: 0.83rem; font-family: 'Consolas', monospace; color: #a78bfa; }
+    .card pre { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; font-size: 0.82rem; font-family: 'Consolas', monospace; overflow-x: auto; color: #c4b5fd; margin-top: 10px; line-height: 1.5; }
+    .fix-label { font-size: 0.78rem; color: var(--green); text-transform: uppercase; letter-spacing: .8px; font-weight: 700; margin-top: 14px; margin-bottom: 4px; }
+    .file-ref { font-size: 0.78rem; color: var(--text-dim); font-family: 'Consolas', monospace; position: absolute; top: 14px; right: 18px; }
+
+    /* ── Priority matrix ── */
+    .matrix { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .matrix-cell { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+    .matrix-cell h4 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 14px; }
+    .matrix-cell ul { list-style: none; }
+    .matrix-cell ul li { font-size: 0.85rem; color: var(--text-muted); padding: 4px 0; border-bottom: 1px solid var(--border); }
+    .matrix-cell ul li:last-child { border: none; }
+    .p1 { border-top: 3px solid var(--red); }
+    .p2 { border-top: 3px solid var(--orange); }
+    .p3 { border-top: 3px solid var(--blue); }
+
+    /* ── Features grid ── */
+    .feat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 18px; }
+    .feat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; }
+    .feat-card h3 { font-size: 0.95rem; color: var(--text); display: flex; align-items: center; gap: 8px; }
+    .feat-card h3 .icon { font-size: 1.2rem; }
+    .feat-card p { font-size: 0.87rem; color: var(--text-muted); margin-top: 6px; }
+
+    /* ── Summary bar ── */
+    .summary-bar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 32px; }
+    .sbar { flex: 1; min-width: 120px; background: var(--surface); border-radius: 8px; padding: 14px 18px; border-left: 4px solid; }
+    .sbar .n { font-size: 1.6rem; font-weight: 700; }
+    .sbar .l { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .7px; margin-top: 2px; }
+    .sbar-critical { border-color: var(--red); }    .sbar-critical .n { color: var(--red); }
+    .sbar-high     { border-color: var(--orange); } .sbar-high .n     { color: var(--orange); }
+    .sbar-medium   { border-color: var(--yellow); } .sbar-medium .n   { color: var(--yellow); }
+    .sbar-low      { border-color: var(--blue); }   .sbar-low .n      { color: var(--blue); }
+    .sbar-feature  { border-color: var(--accent); } .sbar-feature .n  { color: var(--accent); }
+
+    footer { text-align: center; padding: 30px; color: var(--text-dim); font-size: 0.85rem; border-top: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════ HERO ══════════════════════════ -->
+<div class="hero">
+  <h1><span>InsightForge AI</span> — Codebase Audit Report</h1>
+  <p>Full-stack analysis covering backend (FastAPI/Python), ML agents, and frontend (React/TypeScript/Zustand)</p>
+  <div class="meta-row">
+    <div class="meta-item"><div class="val">6</div><div class="lbl">Critical Flaws</div></div>
+    <div class="meta-item"><div class="val">7</div><div class="lbl">High / Medium</div></div>
+    <div class="meta-item"><div class="val">5</div><div class="lbl">Frontend Issues</div></div>
+    <div class="meta-item"><div class="val">3</div><div class="lbl">Security Risks</div></div>
+    <div class="meta-item"><div class="val">12</div><div class="lbl">Suggested Features</div></div>
+    <div class="meta-item"><div class="val">April 19, 2026</div><div class="lbl">Report Date</div></div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ═══════════════════ SUMMARY COUNTS ═══════════════════ -->
+  <div class="summary-bar">
+    <div class="sbar sbar-critical"><div class="n">6</div><div class="l">Critical</div></div>
+    <div class="sbar sbar-high"><div class="n">4</div><div class="l">High</div></div>
+    <div class="sbar sbar-medium"><div class="n">3</div><div class="l">Medium</div></div>
+    <div class="sbar sbar-low"><div class="n">5</div><div class="l">Low / Frontend</div></div>
+    <div class="sbar sbar-feature"><div class="n">12</div><div class="l">Features</div></div>
+  </div>
+
+  <!-- ═══════════════════ CRITICAL FLAWS ═══════════════════ -->
+  <section>
+    <h2>Critical Flaws</h2>
+
+    <div class="card">
+      <span class="file-ref">app/routers/training.py · L75, L84, L109, L121, L150</span>
+      <span class="tag tag-critical">Critical · Correctness</span>
+      <h3>Deprecated asyncio.get_event_loop() in Async Context</h3>
+      <p>
+        <code>asyncio.get_event_loop()</code> is deprecated since Python 3.10 inside a running async context.
+        In Python 3.12 it emits a <em>DeprecationWarning</em> and in Python 3.14 it will raise a <em>RuntimeError</em>.
+        The correct call is <code>asyncio.get_running_loop()</code>, which explicitly asserts an event loop is already running.
+        The same bug appears in <code>evaluation.py</code> (4 occurrences).
+      </p>
+      <pre>
+# ❌ Broken (training.py L75, evaluation.py L37)
+loop = asyncio.get_event_loop()
+
+# ✅ Fix
+loop = asyncio.get_running_loop()</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/routers/data.py · multiple endpoints</span>
+      <span class="tag tag-critical">Critical · Security (Path Traversal)</span>
+      <h3>Raw Dataset Path Passed to os.path.exists()</h3>
+      <p>
+        Six endpoints in <code>data.py</code> pass <code>request.dataset_path</code> directly to
+        <code>os.path.exists()</code> without sanitization. An attacker can supply
+        <code>../../etc/passwd</code> or any absolute path. The same pattern appears in
+        <code>training.py</code> and <code>evaluation.py</code>.
+      </p>
+      <pre>
+# ❌ Vulnerable
+if not os.path.exists(request.dataset_path):
+    raise HTTPException(...)
+
+# ✅ Fix
+SAFE_DIR = Path("datasets").resolve()
+safe = (SAFE_DIR / Path(request.dataset_path).name).resolve()
+if not safe.is_relative_to(SAFE_DIR) or not safe.exists():
+    raise HTTPException(status_code=404, detail="Dataset not found")</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/routers/evaluation.py · L91, L96</span>
+      <span class="tag tag-critical">Critical · Disk Leak</span>
+      <h3>Unbounded Joblib Files Saved During Every Evaluation Call</h3>
+      <p>
+        <code>model_evaluation()</code> saves a timestamped <code>.joblib</code> file to
+        <code>models/</code> for every model in every evaluation run. Under repeated usage the disk
+        fills silently. Models are already persisted by the training step; re-saving during
+        evaluation is redundant.
+      </p>
+      <pre>
+# ❌ Saves new file per evaluation call
+model_path = ml_agent.models_dir / f"{model_name}_tuned_{timestamp}.joblib"
+joblib.dump(model, model_path)
+
+# ✅ Fix: use a temp file, delete after evaluation
+import tempfile, os
+with tempfile.NamedTemporaryFile(suffix=".joblib", delete=False) as tmp:
+    model_path = tmp.name
+joblib.dump(model, model_path)
+# ... evaluate ...
+os.unlink(model_path)   # cleanup</pre>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/routers/evaluation.py · L120–L240</span>
+      <span class="tag tag-critical">Critical · Data Integrity</span>
+      <h3>Fake /api/evaluation-report Returns Random Metrics</h3>
+      <p>
+        The legacy <code>POST /api/evaluation-report</code> endpoint generates results using
+        <code>random.uniform()</code> — no dataset is touched.
+        Any client calling this endpoint receives fabricated accuracy, precision, recall, and ROC-AUC values.
+        The real endpoint is <code>/api/evaluation-report-real</code>.
+      </p>
+      <pre>
+# ❌ Fake data
+model_results[model][metric] = round(random.uniform(0.75, 0.95), 4)
+
+# ✅ Fix: return deprecation notice
+return JSONResponse(
+    status_code=410,
+    content={"deprecated": True,
+             "warning": "This endpoint returns random data. Use /api/evaluation-report-real.",
+             "redirect": "/api/evaluation-report-real"}
+)</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/agents/ml_training_agent.py · L222</span>
+      <span class="tag tag-critical">Critical · Correctness</span>
+      <h3>Hardcoded Titanic Column Names Dropped from Every Dataset</h3>
+      <p>
+        <code>_preprocess_features()</code> unconditionally drops
+        <code>['PassengerId', 'Name', 'Ticket']</code> from any dataset.
+        Any real-world dataset that happens to include a column named <em>Name</em> or <em>Ticket</em>
+        (e.g., "Ticket Number", "Ticket ID") loses that column silently.
+      </p>
+      <pre>
+# ❌ Hardcoded
+id_columns = ['PassengerId', 'Name', 'Ticket']
+
+# ✅ Fix: detect pure-ID columns heuristically
+n = len(X)
+id_columns = [
+    col for col in X.columns
+    if X[col].nunique() == n          # 100 % unique → identifier
+    and (pd.api.types.is_integer_dtype(X[col])
+         or pd.api.types.is_object_dtype(X[col]))
+]</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/routers/analysis.py · L76, L165, L233</span>
+      <span class="tag tag-critical">Critical · Performance</span>
+      <h3>Artificial asyncio.sleep() Calls Block Real Work</h3>
+      <p>
+        Three <code>await asyncio.sleep()</code> calls inside CPU-bound feature-selection and
+        leakage-detection handlers add 2–4 seconds of dead latency to each request with no
+        functional purpose.
+      </p>
+      <pre>
+# ❌ Fake delay (analysis.py L76, L165, L233)
+await asyncio.sleep(1)
+await asyncio.sleep(2)
+
+# ✅ Fix: delete all three lines</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ HIGH SEVERITY ═══════════════════ -->
+  <section>
+    <h2>High Severity Flaws</h2>
+
+    <div class="card">
+      <span class="file-ref">app/routers/training.py · L75, L84, L121</span>
+      <span class="tag tag-high">High · Resource Leak</span>
+      <h3>Unbounded ThreadPoolExecutor (No max_workers)</h3>
+      <p>
+        Three <code>ThreadPoolExecutor()</code> instances are created inside request handlers with no
+        <code>max_workers</code> cap. Python's default is <code>min(32, os.cpu_count()+4)</code>.
+        Under concurrent load each request spawns a fresh pool, leading to resource exhaustion.
+      </p>
+      <pre>
+# ❌
+with ThreadPoolExecutor() as executor:   # unlimited workers
+
+# ✅ Module-level shared executor
+_executor = ThreadPoolExecutor(max_workers=4)
+
+# in handler:
+loop = asyncio.get_running_loop()
+result = await loop.run_in_executor(_executor, my_fn)</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/routers/data.py · validate-target response</span>
+      <span class="tag tag-high">High · Missing Data</span>
+      <h3>validate-target Missing class_count Field</h3>
+      <p>
+        The <code>POST /api/validate-target</code> response omits <code>class_count</code> even
+        though <code>n_classes = target.nunique()</code> is computed. The frontend store and Step 3
+        UI rely on this field to render class imbalance warnings correctly.
+      </p>
+      <pre>
+# ❌ class_count computed but not returned
+n_classes = target.nunique(dropna=True)
+return {"is_valid": ..., "warnings": ..., ...}
+
+# ✅
+return {..., "class_count": int(n_classes)}</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">frontend-react/src/store/pipelineStore.ts · L372</span>
+      <span class="tag tag-high">High · Frontend Bug</span>
+      <h3>Pipeline Step Cap Off-by-Two (14 instead of 12)</h3>
+      <p>
+        <code>completeStep</code> unlocks the next step up to index 14, but only 12 pipeline steps
+        exist. Completing step 12 unlocks a ghost step 13 that has no UI component, leaving the
+        pipeline stuck.
+      </p>
+      <pre>
+// ❌  allows unlock through step 14
+[step + 1]: step + 1 &lt;= 14 ? 'active' : state.stepStatuses[step + 1]
+
+// ✅
+[step + 1]: step + 1 &lt;= 12 ? 'active' : state.stepStatuses[step + 1]</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">frontend-react/src/store/pipelineStore.ts · L292</span>
+      <span class="tag tag-high">High · Frontend Bug</span>
+      <h3>initialStepStatuses Contains Stale Steps 13–15</h3>
+      <p>
+        The initial step state map has keys 13, 14, and 15 which map to UI slots that don't exist.
+        This bloats persisted localStorage state and can confuse migration logic.
+      </p>
+      <pre>
+// ❌ ghost steps
+13: 'locked', 14: 'locked', 15: 'locked'
+
+// ✅ remove keys 13, 14, 15 — pipeline ends at step 12</pre>
+      <div class="fix-label">Fix Applied</div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ MEDIUM SEVERITY ═══════════════════ -->
+  <section>
+    <h2>Medium Severity Flaws</h2>
+
+    <div class="card">
+      <span class="file-ref">app/routers/analysis.py · feature_selection</span>
+      <span class="tag tag-medium">Medium · UX</span>
+      <h3>is_classification Inferred from Heuristic, Not Provided task_type</h3>
+      <p>
+        Feature selection infers task type via <code>y.dtype == "object" or len(y.unique()) &lt; 20</code>.
+        The caller already knows the task type (it was set in Step 3). Passing <code>task_type</code>
+        as a request parameter would be more reliable and avoid misclassification for numeric
+        binary targets with many classes.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/agents/ml_training_agent.py</span>
+      <span class="tag tag-medium">Medium · UX</span>
+      <h3>No Training Progress Streaming</h3>
+      <p>
+        Model training can take 30–120 seconds. There is no SSE/WebSocket progress feed during
+        actual training (only for hyperparameter tuning). The frontend spinner provides no
+        meaningful progress indication.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="file-ref">app/routers/evaluation.py</span>
+      <span class="tag tag-medium">Medium · Reliability</span>
+      <h3>No Model Count / Disk Space Guard Before Training</h3>
+      <p>
+        With no cleanup policy, <code>models/</code> accumulates <code>.joblib</code> files
+        indefinitely. A <code>MAX_MODELS = 20</code> eviction policy (LRU by mtime) would bound
+        disk usage automatically.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ LOW / FRONTEND ═══════════════════ -->
+  <section>
+    <h2>Low Severity &amp; Frontend Issues</h2>
+
+    <div class="card">
+      <span class="tag tag-low">Low · Frontend</span>
+      <h3>localStorage Overflow Risk</h3>
+      <p>
+        The <code>partialize</code> function strips large arrays but still persists
+        <code>profileResult</code>, <code>edaResult</code>, and <code>featureEngineeringResult</code>
+        which can be several hundred KB each. Browsers typically cap localStorage at 5 MB.
+        Strip these from persistence entirely — re-fetch on page reload from session state.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-low">Low · Developer Experience</span>
+      <h3>No Structured Logging or Request ID</h3>
+      <p>
+        Errors are logged via <code>logger.error(str(e))</code> with no request ID, endpoint name,
+        or user context. Add a middleware that attaches a UUID trace ID to each request and includes
+        it in every log line.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-low">Low · Developer Experience</span>
+      <h3>No API Rate Limiting</h3>
+      <p>
+        Endpoints like <code>/api/model-training</code> are computationally expensive.
+        Without rate limiting, a single client can submit dozens of concurrent training jobs and
+        exhaust server RAM. Add <code>slowapi</code> or <code>fastapi-limiter</code>.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-low">Low · Reliability</span>
+      <h3>No Background Job Queue for Long-Running Tasks</h3>
+      <p>
+        Training and hyperparameter tuning are executed synchronously inside request handlers.
+        If the client disconnects mid-request, the computation still runs but results are lost.
+        Consider <code>Celery + Redis</code> or <code>FastAPI BackgroundTasks</code> with a proper
+        job-status polling endpoint.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-low">Low · Frontend</span>
+      <h3>No Offline / Error Recovery State</h3>
+      <p>
+        If the backend returns a 500 during a mid-pipeline step, the frontend marks the step as
+        failed but has no retry button. The user must reload and lose all prior context. Add
+        per-step retry actions and persist the last successful API response for each step.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ SECURITY SUMMARY ═══════════════════ -->
+  <section>
+    <h2>Security Concerns (OWASP)</h2>
+
+    <div class="card">
+      <span class="tag tag-critical">A01 — Broken Access Control</span>
+      <h3>No Authentication on Any Endpoint</h3>
+      <p>
+        Every API endpoint is fully public. Anyone who can reach the server can upload datasets,
+        train models, and read reports. Add JWT / API-key middleware as a minimum. For
+        multi-user scenarios, scope datasets and reports to an authenticated identity.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-critical">A05 — Security Misconfiguration (Path Traversal)</span>
+      <h3>Raw Filesystem Paths Accepted from Clients</h3>
+      <p>
+        As noted in Critical Flaws: <code>request.dataset_path</code> is passed to
+        <code>os.path.exists()</code> without canonicalization. This is an OWASP A05 violation.
+        Always resolve paths against a safe base directory.
+      </p>
+    </div>
+
+    <div class="card">
+      <span class="tag tag-high">A08 — Software and Data Integrity Failures</span>
+      <h3>Fake Evaluation Metrics Served as Real</h3>
+      <p>
+        The legacy <code>/api/evaluation-report</code> endpoint returns
+        <code>random.uniform()</code> values branded as model metrics. This violates data
+        integrity — users making model selection decisions based on these values are misled.
+      </p>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ PRIORITY MATRIX ═══════════════════ -->
+  <section>
+    <h2>Priority Matrix</h2>
+    <div class="matrix">
+      <div class="matrix-cell p1">
+        <h4 style="color:var(--red)">P1 — Fix Now</h4>
+        <ul>
+          <li>Path traversal sanitization</li>
+          <li>Fake /api/evaluation-report → 410</li>
+          <li>asyncio.get_running_loop() fix</li>
+          <li>Remove fake sleep() calls</li>
+          <li>Hardcoded Titanic columns</li>
+          <li>Joblib disk leak in evaluation</li>
+        </ul>
+      </div>
+      <div class="matrix-cell p2">
+        <h4 style="color:var(--orange)">P2 — Fix Soon</h4>
+        <ul>
+          <li>ThreadPoolExecutor cap</li>
+          <li>class_count in validate-target</li>
+          <li>Pipeline step cap (14 → 12)</li>
+          <li>Ghost steps 13–15 removed</li>
+          <li>Add task_type to analysis endpoints</li>
+        </ul>
+      </div>
+      <div class="matrix-cell p3">
+        <h4 style="color:var(--blue)">P3 — Nice to Have</h4>
+        <ul>
+          <li>Rate limiting (slowapi)</li>
+          <li>JWT authentication</li>
+          <li>Background job queue (Celery)</li>
+          <li>Structured logging + trace IDs</li>
+          <li>localStorage eviction</li>
+          <li>Per-step retry UI</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════════════ SUGGESTED FEATURES ═══════════════════ -->
+  <section>
+    <h2>Suggested Feature Additions</h2>
+    <div class="feat-grid">
+
+      <div class="feat-card">
+        <h3><span class="icon">📊</span> SHAP Explainability Panel</h3>
+        <p>Post-training SHAP waterfall / beeswarm plots using <code>shap</code> library. Show per-prediction explanations in Step 9 UI.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">🔁</span> Automated Retraining on Drift</h3>
+        <p>Integrate Evidently AI or custom PSI checks. Alert or auto-retrain when input distribution shifts beyond a threshold.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">📁</span> Project / Experiment History</h3>
+        <p>Persist experiment metadata (dataset, model, metrics, date) in SQLite via SQLModel. Allow browsing past runs and comparing metrics.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">🧪</span> A/B Model Comparison</h3>
+        <p>Let users pin two model evaluation results side-by-side with radar charts and McNemar statistical significance tests.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">📤</span> One-Click Export</h3>
+        <p>Export trained model as ONNX, Python inference script, or Docker image from the UI.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">🤖</span> LLM Auto-Pilot Mode</h3>
+        <p>Full pipeline auto-run: LLM chooses cleaning strategies, feature engineering, model selection, and tuning budget autonomously.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">🗃️</span> Data Versioning</h3>
+        <p>Hash-based dataset versioning so each pipeline step references an immutable snapshot. Enables reliable re-runs and diff views.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">⏱️</span> Real-Time Training Progress</h3>
+        <p>SSE stream from the training endpoint pushing epoch/trial progress. Replace static spinner with live loss/metric chart.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">🔑</span> Multi-User Auth + Workspaces</h3>
+        <p>JWT authentication with user-scoped dataset/model namespaces. Each user only sees their own projects.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">📋</span> Interactive Prediction Playground</h3>
+        <p>After training, expose a form where users enter feature values and see real-time predictions with confidence intervals.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">📈</span> AutoML Benchmark Mode</h3>
+        <p>Run all supported models in one click with shared CV folds. Produce a leaderboard ranked by cross-validated score.</p>
+      </div>
+
+      <div class="feat-card">
+        <h3><span class="icon">📦</span> Plugin / Custom Model Upload</h3>
+        <p>Allow users to upload a scikit-learn-compatible <code>.py</code> estimator and have it appear in the model selection list.</p>
+      </div>
+
+    </div>
+  </section>
+
+</div>
+
+<footer>
+  InsightForge AI — Codebase Audit Report &bull; Generated April 19, 2026 &bull; All findings are scoped to the InsightForge AI repository (hafiz-m-awais/InsightForge-AI · branch: main)
+</footer>
+
+</body>
+</html>

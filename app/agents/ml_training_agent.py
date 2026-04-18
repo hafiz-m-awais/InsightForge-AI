@@ -218,8 +218,17 @@ class MLTrainingAgent:
         """Basic feature preprocessing for ML models."""
         X = X.copy()
         
-        # Drop columns that are likely identifiers or very high cardinality
-        id_columns = ['PassengerId', 'Name', 'Ticket']
+        # Drop columns that are likely pure identifiers: 100% unique values
+        # and either integer or string type (heuristic, avoids Titanic-specific hardcoding)
+        n = len(X)
+        id_columns = [
+            col for col in X.columns
+            if n > 0 and X[col].nunique() == n
+            and (
+                pd.api.types.is_integer_dtype(X[col])
+                or pd.api.types.is_object_dtype(X[col])
+            )
+        ]
         for col in id_columns:
             if col in X.columns:
                 X = X.drop(columns=[col])

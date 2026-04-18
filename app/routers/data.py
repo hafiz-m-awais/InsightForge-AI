@@ -4,6 +4,7 @@ Data pipeline routes: upload, profile, validate-target, EDA, cleaning, feature e
 from fastapi import APIRouter, HTTPException, UploadFile, File
 import os
 import pandas as pd
+from pathlib import Path
 from pydantic import BaseModel
 
 from app.middleware import safe_execute, DatasetError, ValidationError
@@ -16,6 +17,18 @@ from app.agents.feature_engineer import run_feature_engineering
 router = APIRouter(prefix="/api", tags=["data"])
 
 UPLOAD_DIR = "datasets"
+_SAFE_DIR = Path(UPLOAD_DIR).resolve()
+
+
+def _safe_dataset_path(raw: str) -> str:
+    """Resolve a client-supplied dataset path safely inside UPLOAD_DIR.
+    Returns the resolved string path, or raises HTTPException on traversal."""
+    candidate = (_SAFE_DIR / Path(raw).name).resolve()
+    if not candidate.is_relative_to(_SAFE_DIR):
+        raise HTTPException(status_code=400, detail="Invalid dataset path")
+    if not candidate.exists():
+        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    return str(candidate)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -73,11 +86,12 @@ async def profile_dataset(request: ProfileRequest):
     """
     Compute statistical profile of the dataset and generate an AI quality summary.
     """
-    if not os.path.exists(request.dataset_path):
-        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    safe_path = _safe_dataset_path(request.dataset_path)
     try:
-        result = run_profile(request.dataset_path, request.provider)
+        result = run_profile(safe_path, request.provider)
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -98,11 +112,10 @@ async def validate_target(request: ValidateTargetRequest):
     Validate the chosen target column for the given task type.
     Returns is_valid flag, warnings, distribution data, and imbalance ratio.
     """
-    if not os.path.exists(request.dataset_path):
-        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    safe_path = _safe_dataset_path(request.dataset_path)
 
     try:
-        df = load_dataset(request.dataset_path)
+        df = load_dataset(safe_path)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not read dataset: {exc}")
 
@@ -167,6 +180,7 @@ async def validate_target(request: ValidateTargetRequest):
         "ai_suggestion": ai_suggestion,
         "imbalance_ratio": imbalance_ratio,
         "target_stats": target_stats,
+        "class_count": int(target.nunique(dropna=True)),
     }
 
 
@@ -187,17 +201,18 @@ async def exploratory_data_analysis(request: EDARequest):
     """
     Compute full EDA: distributions, correlation matrix, outliers, leakage flags, LLM insights.
     """
-    if not os.path.exists(request.dataset_path):
-        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    safe_path = _safe_dataset_path(request.dataset_path)
     try:
         result = run_eda(
-            dataset_path=request.dataset_path,
+            dataset_path=safe_path,
             target_col=request.target_col,
             task_type=request.task_type,
             columns_to_drop=request.columns_to_drop,
             provider=request.provider,
         )
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -219,17 +234,18 @@ async def clean_dataset(request: CleaningRequest):
     """
     Apply the configured cleaning plan to the dataset and return a cleaned file + stats.
     """
-    if not os.path.exists(request.dataset_path):
-        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    safe_path = _safe_dataset_path(request.dataset_path)
     try:
         result = run_data_cleaning(
-            dataset_path=request.dataset_path,
+            dataset_path=safe_path,
             missing_strategies=request.missing_strategies,  # type: ignore
             outlier_treatments=request.outlier_treatments,  # type: ignore
             columns_to_drop=request.columns_to_drop,
             constant_values=request.constant_values,  # type: ignore
         )
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))
 
@@ -255,11 +271,10 @@ async def feature_engineering(request: FeatureEngineeringRequest):
     """
     Apply feature engineering transformations and return processed dataset + stats.
     """
-    if not os.path.exists(request.dataset_path):
-        raise HTTPException(status_code=404, detail="Dataset not found on server.")
+    safe_path = _safe_dataset_path(request.dataset_path)
     try:
         result = run_feature_engineering(
-            dataset_path=request.dataset_path,
+            dataset_path=safe_path,
             target_col=request.target_col,
             encoding_map=request.encoding_map,  # type: ignore
             scaling=request.scaling,  # type: ignore
@@ -270,5 +285,7 @@ async def feature_engineering(request: FeatureEngineeringRequest):
             drop_original_after_encode=request.drop_original_after_encode,
         )
         return result
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc))

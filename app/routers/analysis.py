@@ -74,8 +74,6 @@ async def feature_selection(request: FeatureSelectionRequest):
                 "remaining_features": variance_features,
             }
 
-        await asyncio.sleep(1)
-
         if request.method == "correlation":
             corr_matrix = X_processed.corrwith(pd.Series(y_encoded)) if is_classification else X_processed.corrwith(y)
             corr_scores = abs(corr_matrix).sort_values(ascending=False)
@@ -181,8 +179,6 @@ async def feature_selection(request: FeatureSelectionRequest):
         reduction_percentage = ((original_feature_count - selected_feature_count) / original_feature_count) * 100
         sorted_importance = sorted(importance_scores.items(), key=lambda x: abs(x[1]), reverse=True)
 
-        await asyncio.sleep(1)
-
         return {
             "status": "success",
             "method": request.method,
@@ -233,8 +229,6 @@ async def leakage_detection(request: LeakageDetectionRequest):
             X_processed[col] = np.array(le.fit_transform(X[col].astype(str)), dtype=int)
 
         y_encoded = np.array(LabelEncoder().fit_transform(y)) if y.dtype == "object" else y
-
-        await asyncio.sleep(2)
 
         correlations = X_processed.corrwith(pd.Series(y_encoded))
 

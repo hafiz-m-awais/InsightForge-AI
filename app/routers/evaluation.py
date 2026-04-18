@@ -2,13 +2,16 @@
 Model evaluation and report generation routes.
 """
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 import os
 import uuid
 import asyncio
 import logging
 import joblib
+import tempfile
 import pandas as pd
 from datetime import datetime
+from pathlib import Path
 from pydantic import BaseModel
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,6 +19,19 @@ from app.agents.ml_training_agent import MLTrainingAgent
 
 router = APIRouter(prefix="/api", tags=["evaluation"])
 logger = logging.getLogger(__name__)
+
+# Bounded thread-pool shared across all evaluation handlers
+_executor = ThreadPoolExecutor(max_workers=4)
+
+UPLOAD_DIR = Path("datasets").resolve()
+
+
+def _safe_dataset_path(raw: str) -> Path:
+    """Resolve a client-supplied path safely inside UPLOAD_DIR."""
+    candidate = (UPLOAD_DIR / Path(raw).name).resolve()
+    if not candidate.is_relative_to(UPLOAD_DIR):
+        raise ValueError("Invalid dataset path")
+    return candidate
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -38,12 +54,15 @@ async def model_evaluation(request: ModelEvaluationRequest):
     try:
         ml_agent = MLTrainingAgent()
 
-        if not os.path.exists(request.dataset_path):
+        try:
+            dataset_path = _safe_dataset_path(request.dataset_path)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid dataset path")
+        if not dataset_path.exists():
             raise HTTPException(status_code=404, detail="Dataset not found")
 
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            df = await loop.run_in_executor(executor, pd.read_csv, request.dataset_path)
+        loop = asyncio.get_running_loop()
+        df = await loop.run_in_executor(_executor, pd.read_csv, dataset_path)
 
         X_train, X_val, X_test, y_train, y_val, y_test = ml_agent.prepare_data(
             df, request.target_col, test_size=request.test_size, validation_size=0.15
@@ -54,52 +73,53 @@ async def model_evaluation(request: ModelEvaluationRequest):
             raise HTTPException(status_code=400, detail="Invalid tuning results")
 
         evaluation_results = []
-        loop = asyncio.get_event_loop()
+        for model_result in tuning_results["results"]:
+            model_name = model_result.get("model_name")
+            best_params = model_result.get("best_params", {})
 
-        with ThreadPoolExecutor() as executor:
-            for model_result in tuning_results["results"]:
-                model_name = model_result.get("model_name")
-                best_params = model_result.get("best_params", {})
+            if not model_name:
+                continue
 
-                if not model_name:
+            model_name = ml_agent._normalize_model_name(model_name)
+
+            try:
+                model_dict = (
+                    ml_agent.classification_models
+                    if ml_agent.task_type == "classification"
+                    else ml_agent.regression_models
+                )
+
+                if model_name not in model_dict:
+                    logger.warning(f"Model {model_name} not found, skipping")
                     continue
 
-                model_name = ml_agent._normalize_model_name(model_name)
+                import inspect
+                base_model = model_dict[model_name]
+                model_sig = inspect.signature(base_model.__class__.__init__)
+                valid_params = set(model_sig.parameters.keys()) - {"self"}
+                filtered_params = {k: v for k, v in best_params.items() if k in valid_params}
+                if "random_state" in valid_params and "random_state" not in filtered_params:
+                    filtered_params["random_state"] = ml_agent.random_state
+                model = base_model.__class__(**filtered_params)
 
+                model.fit(X_train, y_train)
+
+                # Use a temp file to avoid unbounded disk growth in models/
+                tmp_fd, tmp_path = tempfile.mkstemp(suffix=".joblib")
+                os.close(tmp_fd)
                 try:
-                    model_dict = (
-                        ml_agent.classification_models
-                        if ml_agent.task_type == "classification"
-                        else ml_agent.regression_models
-                    )
-
-                    if model_name not in model_dict:
-                        logger.warning(f"Model {model_name} not found, skipping")
-                        continue
-
-                    import inspect
-                    base_model = model_dict[model_name]
-                    model_sig = inspect.signature(base_model.__class__.__init__)
-                    valid_params = set(model_sig.parameters.keys()) - {"self"}
-                    filtered_params = {k: v for k, v in best_params.items() if k in valid_params}
-                    if "random_state" in valid_params and "random_state" not in filtered_params:
-                        filtered_params["random_state"] = ml_agent.random_state
-                    model = base_model.__class__(**filtered_params)
-
-                    model.fit(X_train, y_train)
-
-                    model_path = ml_agent.models_dir / f"{model_name}_tuned_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
-                    joblib.dump(model, model_path)
-
+                    joblib.dump(model, tmp_path)
                     eval_result = await loop.run_in_executor(
-                        executor, ml_agent.evaluate_model, str(model_path),
+                        _executor, ml_agent.evaluate_model, tmp_path,
                         X_test, y_test, model_name, X_train,
                     )
-                    evaluation_results.append(eval_result)
+                finally:
+                    os.unlink(tmp_path)
+                evaluation_results.append(eval_result)
 
-                except Exception as e:
-                    logger.error(f"Error evaluating {model_name}: {str(e)}")
-                    continue
+            except Exception as e:
+                logger.error(f"Error evaluating {model_name}: {str(e)}")
+                continue
 
         if not evaluation_results:
             raise HTTPException(status_code=400, detail="No models could be evaluated")
@@ -126,112 +146,15 @@ async def model_evaluation(request: ModelEvaluationRequest):
 
 @router.post("/evaluation-report")
 async def evaluation_report(request: dict = {}):
-    """Generate comprehensive HTML evaluation report (legacy mock version)."""
-    try:
-        import random
-
-        metrics = request.get("metrics", ["accuracy", "precision", "recall", "f1_score"])
-        test_size = request.get("test_size", 0.2)
-        include_feature_importance = request.get("include_feature_importance", True)
-        task_type = request.get("task_type", "classification")
-
-        models_evaluated = ["RandomForestClassifier", "LogisticRegression", "XGBoostClassifier"]
-
-        model_results = {}
-        for model in models_evaluated:
-            model_results[model] = {}
-            for metric in metrics:
-                if task_type == "classification":
-                    if metric == "accuracy":
-                        model_results[model][metric] = round(random.uniform(0.75, 0.95), 4)
-                    elif metric in ["precision", "recall", "f1_score"]:
-                        model_results[model][metric] = round(random.uniform(0.70, 0.90), 4)
-                    elif metric == "roc_auc":
-                        model_results[model][metric] = round(random.uniform(0.80, 0.95), 4)
-                else:
-                    if metric == "mae":
-                        model_results[model][metric] = round(random.uniform(0.1, 2.0), 4)
-                    elif metric == "mse":
-                        model_results[model][metric] = round(random.uniform(0.01, 1.0), 4)
-                    elif metric == "rmse":
-                        model_results[model][metric] = round(random.uniform(0.1, 1.0), 4)
-                    elif metric == "r2_score":
-                        model_results[model][metric] = round(random.uniform(0.60, 0.95), 4)
-
-        best_model = max(model_results.keys(), key=lambda m: model_results[m][metrics[0]])
-
-        realistic_features = [
-            "age", "income", "credit_score", "education_level", "employment_years",
-            "debt_to_income_ratio", "monthly_spending", "account_balance",
-            "transaction_frequency", "customer_tenure", "previous_defaults",
-            "loan_amount", "property_value", "marital_status", "dependents_count",
-        ]
-        selected_features = random.sample(realistic_features, min(12, len(realistic_features)))
-        feature_importance = [
-            {"feature": feature, "importance": round(random.uniform(0.01, 0.25), 4)}
-            for feature in selected_features
-        ]
-        feature_importance.sort(key=lambda x: x["importance"], reverse=True)
-
-        confusion_matrix = None
-        if task_type == "classification":
-            confusion_matrix = [
-                [random.randint(80, 120), random.randint(5, 15)],
-                [random.randint(10, 20), random.randint(85, 115)],
-            ]
-
-        html_parts = [
-            "<!DOCTYPE html>", "<html lang='en'>", "<head>",
-            "<meta charset='UTF-8'>",
-            "<meta name='viewport' content='width=device-width, initial-scale=1.0'>",
-            "<title>Model Evaluation Report</title>",
-            """<style>
-            body { font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; background: #f5f7fa; }
-            .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-            .header { text-align: center; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 3px solid #4f46e5; }
-            .header h1 { color: #1f2937; font-size: 2.5em; margin: 0; }
-            .section { margin: 30px 0; }
-            .section h2 { color: #4f46e5; border-left: 4px solid #4f46e5; padding-left: 15px; }
-            .summary-box { background: #eff6ff; border: 1px solid #dbeafe; padding: 20px; border-radius: 8px; }
-            table { width: 100%; border-collapse: collapse; }
-            th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-            th { background: #f9fafb; font-weight: 600; }
-            .best-model { background: #ecfdf5; font-weight: bold; }
-            </style>""",
-            "</head>", "<body>", "<div class='container'>",
-            "<div class='header'>",
-            "<h1>Model Evaluation Report</h1>",
-            f"<p>Generated by InsightForge AI &bull; {datetime.now().strftime('%B %d, %Y at %I:%M %p')}</p>",
-            "</div>",
-            "<div class='section'><h2>Model Performance Comparison</h2>",
-            "<table><thead><tr><th>Model</th>",
-        ]
-        for metric in metrics:
-            html_parts.append(f"<th>{metric.replace('_', ' ').title()}</th>")
-        html_parts.extend(["</tr></thead><tbody>"])
-        for model in models_evaluated:
-            row_class = "best-model" if model == best_model else ""
-            html_parts.append(f"<tr class='{row_class}'><td>{model}</td>")
-            for metric in metrics:
-                html_parts.append(f"<td>{model_results[model].get(metric, 'N/A')}</td>")
-            html_parts.append("</tr>")
-        html_parts.extend(["</tbody></table></div>", "</div></body></html>"])
-
-        report_html = "".join(html_parts)
-
-        report_path = f"reports/eval_report_{uuid.uuid4().hex[:8]}.html"
-        os.makedirs("reports", exist_ok=True)
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            def _write():
-                with open(report_path, "w", encoding="utf-8") as f:
-                    f.write(report_html)
-            await loop.run_in_executor(executor, _write)
-
-        return report_html
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    """Legacy mock endpoint — replaced by /api/evaluation-report-real."""
+    return JSONResponse(
+        status_code=410,
+        content={
+            "deprecated": True,
+            "warning": "This endpoint returns random/fake data and has been retired.",
+            "redirect": "/api/evaluation-report-real",
+        },
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -257,12 +180,8 @@ async def evaluation_report_real(request: dict = {}):
         report_filename = f"reports/evaluation_report_{timestamp}.html"
 
         os.makedirs("reports", exist_ok=True)
-        loop = asyncio.get_event_loop()
-        with ThreadPoolExecutor() as executor:
-            def _write_real():
-                with open(report_filename, "w", encoding="utf-8") as f:
-                    f.write(html_content)
-            await loop.run_in_executor(executor, _write_real)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(_executor, lambda: open(report_filename, "w", encoding="utf-8").write(html_content))
 
         return {
             "status": "completed",
