@@ -3,8 +3,8 @@ import { runEDA } from '@/api/client'
 import { usePipelineStore } from '@/store/pipelineStore'
 import {
   AlertTriangle, Loader2, ArrowRight, CheckCircle2,
-  Sparkles, BarChart3, Grid3X3, AlertCircle,
-  Table2, Target, GitBranch, Info, Wand2,
+  Sparkles, BarChart3, Grid3X3,
+  Table2, Target, GitBranch, Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
@@ -26,64 +26,12 @@ const INNER_TABS = [
   { id: 'overview',      label: 'Overview',       icon: BarChart3   },
   { id: 'distributions', label: 'Distributions',  icon: BarChart3   },
   { id: 'correlation',   label: 'Correlation',    icon: Grid3X3     },
-  { id: 'missing',       label: 'Data Cleaning',  icon: Wand2       },
   { id: 'quality',       label: 'Quality Table',  icon: Table2      },
   { id: 'bivariate',     label: 'Bivariate',      icon: GitBranch   },
   { id: 'ai',            label: 'AI Insights',    icon: Sparkles    },
 ] as const
 
 type InnerTab = (typeof INNER_TABS)[number]['id']
-
-// ─── Cleaning Plan Types ──────────────────────────────────────────────────────
-
-export type MissingStrategy =
-  | 'skip' | 'drop_rows' | 'drop_col'
-  | 'impute_mean' | 'impute_median' | 'impute_mode'
-  | 'impute_zero' | 'impute_constant' | 'ffill'
-
-export type OutlierTreatment =
-  | 'keep' | 'clip_iqr' | 'winsorize' | 'drop_rows' | 'log_transform'
-
-const MISSING_OPTIONS: { value: MissingStrategy; label: string }[] = [
-  { value: 'skip',             label: 'Skip (no action)'       },
-  { value: 'drop_rows',        label: 'Drop Rows'              },
-  { value: 'drop_col',         label: 'Drop Column'            },
-  { value: 'impute_mean',      label: 'Impute — Mean'          },
-  { value: 'impute_median',    label: 'Impute — Median'        },
-  { value: 'impute_mode',      label: 'Impute — Mode'          },
-  { value: 'impute_zero',      label: 'Impute — Zero'          },
-  { value: 'impute_constant',  label: 'Impute — Constant'      },
-  { value: 'ffill',            label: 'Forward Fill'           },
-]
-
-const OUTLIER_OPTIONS: { value: OutlierTreatment; label: string }[] = [
-  { value: 'keep',          label: 'Keep As-Is'              },
-  { value: 'clip_iqr',      label: 'Clip to IQR'             },
-  { value: 'winsorize',     label: 'Winsorize (1st/99th %)'  },
-  { value: 'drop_rows',     label: 'Drop Outlier Rows'       },
-  { value: 'log_transform', label: 'Log Transform'           },
-]
-
-function suggestMissing(pct: number, dtype: string, isTarget: boolean): { strategy: MissingStrategy; reason: string } {
-  if (isTarget)  return { strategy: 'drop_rows',     reason: 'Never impute the target — drop incomplete rows instead' }
-  if (pct > 60)  return { strategy: 'drop_col',      reason: `${pct}% missing — too high to reliably impute` }
-  if (pct > 20)  return dtype === 'numeric'
-    ? { strategy: 'impute_median', reason: 'Moderate missing — median is robust to skewness' }
-    : { strategy: 'impute_mode',   reason: 'Categorical — fill with most frequent value' }
-  if (pct > 5)   return dtype === 'numeric'
-    ? { strategy: 'impute_mean',   reason: 'Low-moderate missing — mean is safe here' }
-    : { strategy: 'impute_mode',   reason: 'Categorical — fill with most frequent value' }
-  return { strategy: 'drop_rows', reason: 'Very few missing rows — dropping loses minimal data' }
-}
-
-function suggestOutlier(pct: number, col: string): { treatment: OutlierTreatment; reason: string } {
-  const financial = /price|amount|salary|income|cost|revenue|fee|fare|wage|spend/i.test(col)
-  if (financial)    return { treatment: 'log_transform', reason: 'Financial column likely power-law — log transform stabilises variance' }
-  if (pct > 20)     return { treatment: 'log_transform', reason: `${pct.toFixed(1)}% outliers — heavy tail, log transform recommended` }
-  if (pct > 10)     return { treatment: 'winsorize',     reason: `${pct.toFixed(1)}% outliers — winsorize caps extreme values` }
-  if (pct > 3)      return { treatment: 'clip_iqr',      reason: `Mild outliers — clip to IQR bounds` }
-  return { treatment: 'keep', reason: `${pct.toFixed(1)}% outliers — likely legitimate, keep by default` }
-}
 
 function distShape(skewness: number | null | undefined): { label: string; color: string; tip: string } {
   if (skewness == null) return { label: 'Categorical', color: 'text-violet-400', tip: 'Categorical feature — no transform needed' }
@@ -721,418 +669,8 @@ function CorrelationPanel({ matrix, corrWithTarget, targetCol }: {
   )
 }
 
-// ─── Data Cleaning Panel ──────────────────────────────────────────────────────
 
-const selectCls = 'text-[11px] bg-muted/40 border border-border rounded px-2 py-1 text-foreground outline-none focus:border-primary cursor-pointer min-w-[160px]'
-
-function MiniBar({ data, color }: { data: { label: string; value: number }[]; color: string }) {
-  return (
-    <ResponsiveContainer width="100%" height={56}>
-      <BarChart data={data} margin={{ top: 2, right: 2, bottom: 0, left: 2 }} barCategoryGap="10%">
-        <XAxis dataKey="label" tick={{ fontSize: 7, fill: '#64748b' }} interval="preserveStartEnd" />
-        <YAxis hide />
-        <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 4, fontSize: 10 }}
-          formatter={(v) => [typeof v === 'number' ? v.toFixed(0) : v, 'count']} />
-        <Bar dataKey="value" fill={color} radius={[2, 2, 0, 0]} />
-      </BarChart>
-    </ResponsiveContainer>
-  )
-}
-
-function DataCleaningPanel({
-  missingData, outliers, featureStats, targetCol,
-  missingStrategies, setMissingStrategy,
-  outlierTreatments, setOutlierTreatment,
-  confirmedDrops, toggleDrop, distributions,
-}: {
-  missingData: EDAResult['missing_data']
-  outliers: EDAResult['outliers']
-  featureStats: EDAResult['feature_stats']
-  targetCol: string
-  missingStrategies: Record<string, MissingStrategy>
-  setMissingStrategy: (col: string, s: MissingStrategy) => void
-  outlierTreatments: Record<string, OutlierTreatment>
-  setOutlierTreatment: (col: string, t: OutlierTreatment) => void
-  confirmedDrops: string[]
-  toggleDrop: (col: string) => void
-  distributions: EDAResult['distributions']
-}) {
-  const [missingApplied, setMissingApplied] = useState(false)
-  const [outliersApplied, setOutliersApplied] = useState(false)
-  const [showStats, setShowStats] = useState(false)
-
-  const outlierList = Object.entries(outliers).filter(([, v]) => v.pct > 0).sort(([, a], [, b]) => b.pct - a.pct)
-  const statMap = useMemo(() => Object.fromEntries(featureStats.map((f) => [f.col, f])), [featureStats])
-
-  const missingSuggestions = useMemo(() =>
-    Object.fromEntries(missingData.map(({ col, pct }) => {
-      const stat = statMap[col]
-      return [col, suggestMissing(pct, stat?.dtype ?? 'numeric', col === targetCol)]
-    })), [missingData, statMap, targetCol])
-
-  const outlierSuggestions = useMemo(() =>
-    Object.fromEntries(outlierList.map(([col]) => [col, suggestOutlier(outliers[col].pct, col)])),
-    [outlierList, outliers])
-
-  function autoApplyMissing() {
-    missingData.forEach(({ col }) => setMissingStrategy(col, missingSuggestions[col].strategy))
-  }
-  function autoApplyOutliers() {
-    outlierList.forEach(([col]) => setOutlierTreatment(col, outlierSuggestions[col].treatment))
-  }
-
-  const dropColCount  = missingData.filter(({ col }) => (missingStrategies[col] ?? 'skip') === 'drop_col').length
-  const imputeCount   = missingData.filter(({ col }) => (missingStrategies[col] ?? 'skip').startsWith('impute')).length
-  const dropRowMiss   = missingData.filter(({ col }) => (missingStrategies[col] ?? 'skip') === 'drop_rows').length
-  const logTransCount = outlierList.filter(([col]) => (outlierTreatments[col] ?? 'keep') === 'log_transform').length
-  const clipCount     = outlierList.filter(([col]) => ['clip_iqr','winsorize'].includes(outlierTreatments[col] ?? '')).length
-
-  const activeOutlierCount = outlierList.filter(([col]) => (outlierTreatments[col] ?? 'keep') !== 'keep').length
-
-  return (
-    <div className="space-y-6">
-
-      {/* ── Missing Values ── */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="p-4 border-b border-border flex items-center gap-3">
-          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
-          <div className="flex-1">
-            <p className="text-xs font-semibold text-foreground">Missing Values</p>
-            <p className="text-[11px] text-muted-foreground">{missingData.length} columns affected — choose a strategy per column</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {missingData.length > 0 && (
-              <button onClick={autoApplyMissing}
-                className="flex items-center gap-1.5 text-[11px] bg-muted/40 border border-border text-muted-foreground px-3 py-1.5 rounded-lg hover:bg-muted/60 transition-colors whitespace-nowrap"
-              >
-                <Wand2 className="w-3 h-3" />
-                AI Suggest
-              </button>
-            )}
-            {missingData.length > 0 && (
-              <button
-                onClick={() => setMissingApplied(true)}
-                className="flex items-center gap-1.5 text-[11px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg hover:bg-emerald-500/25 transition-colors whitespace-nowrap font-medium"
-              >
-                <CheckCircle2 className="w-3 h-3" />
-                Apply
-              </button>
-            )}
-          </div>
-        </div>
-
-        {missingData.length === 0 ? (
-          <div className="p-6 text-center text-sm text-emerald-400 flex items-center justify-center gap-2">
-            <CheckCircle2 className="w-4 h-4" /> No missing values — dataset complete.
-          </div>
-        ) : (
-          <>
-            <div className="divide-y divide-border">
-              <div className="grid grid-cols-[180px_1fr_auto_auto] gap-3 px-4 py-2 bg-muted/20">
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Column</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Missing</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">AI Suggestion</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Strategy</span>
-              </div>
-              {missingData.map(({ col, pct, count }) => {
-                const sug = missingSuggestions[col]
-                const current = missingStrategies[col] ?? 'skip'
-                const isAI = current === sug.strategy
-                return (
-                  <div key={col} className="grid grid-cols-[180px_1fr_auto_auto] gap-3 items-center px-4 py-3 hover:bg-muted/10 transition-colors">
-                    <div className="min-w-0">
-                      <p className={cn('font-mono text-xs font-medium truncate', col === targetCol ? 'text-primary' : 'text-slate-300')}>
-                        {col}
-                        {col === targetCol && <span className="ml-1 text-[9px] bg-primary/20 text-primary px-1 rounded">target</span>}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">{count.toLocaleString()} rows</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-3 rounded bg-muted/40 overflow-hidden">
-                        <div className="h-full rounded" style={{ width: `${Math.min(pct, 100)}%`, background: pct > 30 ? '#ef4444' : pct > 10 ? '#f59e0b' : '#3b82f6' }} />
-                      </div>
-                      <span className={cn('text-[11px] font-mono w-10 shrink-0 text-right', pct > 30 ? 'text-red-400' : pct > 10 ? 'text-amber-400' : 'text-blue-400')}>{pct}%</span>
-                    </div>
-                    <button onClick={() => setMissingStrategy(col, sug.strategy)} title={sug.reason}
-                      className={cn('flex items-center gap-1 text-[10px] px-2 py-1 rounded border transition-all whitespace-nowrap',
-                        isAI ? 'bg-primary/20 border-primary/40 text-primary' : 'bg-muted/30 border-border text-muted-foreground hover:border-primary/40 hover:text-primary'
-                      )}
-                    >
-                      <Sparkles className="w-2.5 h-2.5 shrink-0" />
-                      {MISSING_OPTIONS.find((o) => o.value === sug.strategy)?.label ?? sug.strategy}
-                      {isAI && <span className="text-[9px] opacity-70 ml-0.5">✓</span>}
-                    </button>
-                    <select value={current} onChange={(e) => setMissingStrategy(col, e.target.value as MissingStrategy)} className={selectCls}>
-                      {MISSING_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Applied banner + before/after */}
-            {missingApplied && (
-              <div className="border-t border-emerald-500/20 bg-emerald-500/5">
-                <div className="flex items-center justify-between px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-semibold text-emerald-400">Missing value strategies applied</span>
-                    <span className="text-[11px] text-muted-foreground">— {dropColCount} dropped · {imputeCount} imputed · {dropRowMiss} drop-rows</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowStats((v) => !v)}
-                      className="text-[11px] px-2.5 py-1 rounded border border-border bg-muted/30 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showStats ? 'Hide stats' : 'Show stats'}
-                    </button>
-                    <button onClick={() => setMissingApplied(false)} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">Undo</button>
-                  </div>
-                </div>
-
-                {/* Before / after distributions per affected column */}
-                <div className="px-4 pb-4 space-y-3">
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Distribution — Before → After treatment</p>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {missingData.slice(0, 6).map(({ col, pct }) => {
-                      const dist = distributions[col]
-                      if (!dist) return null
-                      const beforeData = dist.labels.map((l, i) => ({ label: l, value: dist.values[i] }))
-                      // Simulate "after": imputed = remove empty bins, drop = zero out
-                      const strategy = missingStrategies[col] ?? 'skip'
-                      const afterData = strategy === 'drop_col'
-                        ? []
-                        : strategy === 'drop_rows'
-                          ? beforeData.map((d) => ({ ...d, value: Math.round(d.value * (1 - pct / 100)) }))
-                          : beforeData.map((d, i) => i === 0 ? { ...d, value: Math.round(d.value * 0.4) } : { ...d, value: Math.round(d.value * (1 + pct / 100 / (beforeData.length - 1))) })
-                      const stat = statMap[col]
-
-                      return (
-                        <div key={col} className="rounded-lg border border-border bg-card p-2 space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono text-[10px] text-slate-300 truncate max-w-[80px]">{col}</span>
-                            <span className="text-[9px] bg-amber-500/15 text-amber-400 px-1.5 rounded">{MISSING_OPTIONS.find(o => o.value === strategy)?.label ?? strategy}</span>
-                          </div>
-                          {strategy === 'drop_col' ? (
-                            <div className="flex items-center justify-center h-14 text-[10px] text-red-400">Column removed</div>
-                          ) : (
-                            <div className="flex gap-1">
-                              <div className="flex-1">
-                                <p className="text-[9px] text-muted-foreground text-center mb-0.5">Before</p>
-                                <MiniBar data={beforeData} color="#ef4444" />
-                              </div>
-                              <div className="w-px bg-border" />
-                              <div className="flex-1">
-                                <p className="text-[9px] text-emerald-400 text-center mb-0.5">After</p>
-                                <MiniBar data={afterData} color="#10b981" />
-                              </div>
-                            </div>
-                          )}
-                          {showStats && stat && (
-                            <div className="flex flex-wrap gap-1 pt-1 border-t border-border">
-                              {stat.mean != null && <span className="text-[9px] bg-muted/40 rounded px-1 text-muted-foreground">μ {stat.mean.toFixed(2)}</span>}
-                              {stat.std != null && <span className="text-[9px] bg-muted/40 rounded px-1 text-muted-foreground">σ {stat.std.toFixed(2)}</span>}
-                              {stat.skewness != null && <span className="text-[9px] bg-muted/40 rounded px-1 text-muted-foreground">skew {stat.skewness.toFixed(2)}</span>}
-                              <span className="text-[9px] bg-muted/40 rounded px-1 text-muted-foreground">miss {stat.missing_pct.toFixed(1)}%</span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Outliers ── */}
-      <div className="rounded-xl border border-border bg-card overflow-hidden">
-        <div className="p-4 border-b border-border flex items-center gap-3">
-          <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0" />
-          <div className="flex-1">
-            <p className="text-xs font-semibold text-foreground">Outlier Treatment</p>
-            <p className="text-[11px] text-muted-foreground">{outlierList.length} columns with outliers — choose detection & treatment per column</p>
-          </div>
-          <div className="flex items-center gap-2">
-            {outlierList.length > 0 && (
-              <button onClick={autoApplyOutliers}
-                className="flex items-center gap-1.5 text-[11px] bg-muted/40 border border-border text-muted-foreground px-3 py-1.5 rounded-lg hover:bg-muted/60 transition-colors whitespace-nowrap"
-              >
-                <Wand2 className="w-3 h-3" />
-                AI Suggest
-              </button>
-            )}
-            {outlierList.length > 0 && (
-              <button
-                onClick={() => setOutliersApplied(true)}
-                className="flex items-center gap-1.5 text-[11px] bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg hover:bg-emerald-500/25 transition-colors whitespace-nowrap font-medium"
-              >
-                <CheckCircle2 className="w-3 h-3" />
-                Apply
-              </button>
-            )}
-          </div>
-        </div>
-
-        {outlierList.length === 0 ? (
-          <div className="p-6 text-center text-sm text-emerald-400 flex items-center justify-center gap-2">
-            <CheckCircle2 className="w-4 h-4" /> No outliers detected.
-          </div>
-        ) : (
-          <>
-            <div className="divide-y divide-border">
-              <div className="grid grid-cols-[180px_1fr_auto_auto_auto] gap-3 px-4 py-2 bg-muted/20">
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Column</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Outlier %</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">IQR Bounds</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">AI Suggestion</span>
-                <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-medium">Treatment</span>
-              </div>
-              {outlierList.map(([col, info]) => {
-                const sug = outlierSuggestions[col]
-                const current = outlierTreatments[col] ?? 'keep'
-                const isAI = current === sug.treatment
-                return (
-                  <div key={col} className="grid grid-cols-[180px_1fr_auto_auto_auto] gap-3 items-center px-4 py-3 hover:bg-muted/10 transition-colors">
-                    <div className="min-w-0">
-                      <p className="font-mono text-xs font-medium text-slate-300 truncate">{col}</p>
-                      <p className="text-[10px] text-muted-foreground">{info.count.toLocaleString()} rows</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="flex-1 h-3 rounded bg-muted/40 overflow-hidden">
-                        <div className="h-full rounded" style={{ width: `${Math.min(info.pct, 100)}%`, background: info.pct > 15 ? '#ef4444' : info.pct > 5 ? '#f97316' : '#f59e0b' }} />
-                      </div>
-                      <span className={cn('text-[11px] font-mono w-10 shrink-0 text-right', info.pct > 15 ? 'text-red-400' : 'text-amber-400')}>{info.pct.toFixed(1)}%</span>
-                    </div>
-                    <span className="text-[10px] font-mono text-muted-foreground whitespace-nowrap">[{info.lower.toFixed(2)}, {info.upper.toFixed(2)}]</span>
-                    <button onClick={() => setOutlierTreatment(col, sug.treatment)} title={sug.reason}
-                      className={cn('flex items-center gap-1 text-[10px] px-2 py-1 rounded border transition-all whitespace-nowrap',
-                        isAI ? 'bg-primary/20 border-primary/40 text-primary' : 'bg-muted/30 border-border text-muted-foreground hover:border-primary/40 hover:text-primary'
-                      )}
-                    >
-                      <Sparkles className="w-2.5 h-2.5 shrink-0" />
-                      {OUTLIER_OPTIONS.find((o) => o.value === sug.treatment)?.label ?? sug.treatment}
-                      {isAI && <span className="text-[9px] opacity-70 ml-0.5">✓</span>}
-                    </button>
-                    <select value={current} onChange={(e) => setOutlierTreatment(col, e.target.value as OutlierTreatment)} className={selectCls}>
-                      {OUTLIER_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Applied banner + before/after */}
-            {outliersApplied && (
-              <div className="border-t border-emerald-500/20 bg-emerald-500/5">
-                <div className="flex items-center justify-between px-4 py-3">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                    <span className="text-xs font-semibold text-emerald-400">Outlier treatments applied</span>
-                    <span className="text-[11px] text-muted-foreground">— {activeOutlierCount} of {outlierList.length} treated · {logTransCount} log · {clipCount} clipped</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setShowStats((v) => !v)}
-                      className="text-[11px] px-2.5 py-1 rounded border border-border bg-muted/30 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showStats ? 'Hide stats' : 'Show stats'}
-                    </button>
-                    <button onClick={() => setOutliersApplied(false)} className="text-[11px] text-muted-foreground hover:text-foreground transition-colors">Undo</button>
-                  </div>
-                </div>
-
-                <div className="px-4 pb-4 space-y-3">
-                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Distribution — Before → After treatment</p>
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                    {outlierList.filter(([col]) => (outlierTreatments[col] ?? 'keep') !== 'keep').slice(0, 6).map(([col, info]) => {
-                      const dist = distributions[col]
-                      if (!dist) return null
-                      const beforeData = dist.labels.map((l, i) => ({ label: l, value: dist.values[i] }))
-                      const treatment = outlierTreatments[col] ?? 'keep'
-                      // Simulate "after": clip outliers → trim extreme bins
-                      const afterData = treatment === 'drop_rows'
-                        ? beforeData.slice(1, -1).map((d) => ({ ...d, value: Math.round(d.value * (1 / (1 - info.pct / 100))) }))
-                        : beforeData.map((d, i) => {
-                            const isEdge = i === 0 || i === beforeData.length - 1
-                            return isEdge ? { ...d, value: 0 } : { ...d, value: Math.round(d.value * 1.05) }
-                          })
-                      const stat = statMap[col]
-
-                      return (
-                        <div key={col} className="rounded-lg border border-border bg-card p-2 space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono text-[10px] text-slate-300 truncate max-w-[80px]">{col}</span>
-                            <span className="text-[9px] bg-orange-500/15 text-orange-400 px-1.5 rounded">{OUTLIER_OPTIONS.find(o => o.value === treatment)?.label ?? treatment}</span>
-                          </div>
-                          <div className="flex gap-1">
-                            <div className="flex-1">
-                              <p className="text-[9px] text-muted-foreground text-center mb-0.5">Before</p>
-                              <MiniBar data={beforeData} color="#ef4444" />
-                            </div>
-                            <div className="w-px bg-border" />
-                            <div className="flex-1">
-                              <p className="text-[9px] text-emerald-400 text-center mb-0.5">After</p>
-                              <MiniBar data={afterData} color="#10b981" />
-                            </div>
-                          </div>
-                          {showStats && stat && (
-                            <div className="flex flex-wrap gap-1 pt-1 border-t border-border">
-                              {stat.mean != null && <span className="text-[9px] bg-muted/40 rounded px-1 text-muted-foreground">μ {stat.mean.toFixed(2)}</span>}
-                              {stat.std != null && <span className="text-[9px] bg-muted/40 rounded px-1 text-muted-foreground">σ {stat.std.toFixed(2)}</span>}
-                              {stat.skewness != null && <span className="text-[9px] bg-muted/40 rounded px-1 text-muted-foreground">skew {stat.skewness.toFixed(2)}</span>}
-                              <span className="text-[9px] bg-orange-500/15 text-orange-400 rounded px-1">{info.pct.toFixed(1)}% outliers</span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Cleaning Plan Summary ── */}
-      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <p className="text-xs font-semibold text-foreground">Cleaning Plan Summary</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {[
-            { label: 'Columns to drop',   value: dropColCount + confirmedDrops.length, color: 'text-red-400'    },
-            { label: 'Drop rows (miss.)', value: dropRowMiss,                           color: 'text-amber-400'  },
-            { label: 'Columns imputed',   value: imputeCount,                          color: 'text-blue-400'   },
-            { label: 'Log transforms',    value: logTransCount,                         color: 'text-violet-400' },
-            { label: 'Clipped / Winsor.', value: clipCount,                            color: 'text-teal-400'   },
-            { label: 'Leakage flags',     value: confirmedDrops.length,               color: 'text-orange-400' },
-          ].map((s) => (
-            <div key={s.label} className="rounded-lg bg-muted/20 border border-border p-3">
-              <p className="text-[10px] text-muted-foreground">{s.label}</p>
-              <p className={cn('text-xl font-bold font-mono', s.color)}>{s.value}</p>
-            </div>
-          ))}
-        </div>
-        {confirmedDrops.length > 0 && (
-          <div>
-            <p className="text-[11px] text-muted-foreground mb-1.5">Leakage / manually flagged:</p>
-            <div className="flex flex-wrap gap-1.5">
-              {confirmedDrops.map((col) => (
-                <span key={col} className="flex items-center gap-1 text-[11px] bg-destructive/10 border border-destructive/30 text-red-400 px-2 py-0.5 rounded-full font-mono">
-                  {col}
-                  <button onClick={() => toggleDrop(col)} className="hover:text-red-200 transition-colors">×</button>
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
+// ─── Quality Table ──────────────────────────────────────────────────────────── {
 // ─── Quality Table ────────────────────────────────────────────────────────────
 
 function QualityTable({ featureStats, confirmedDrops, toggleDrop }: {
@@ -1367,13 +905,6 @@ export function Step4EDA() {
   const [error, setError] = useState<string | null>(null)
   const [activeInnerTab, setActiveInnerTab] = useState<InnerTab>('overview')
   const [confirmedDrops, setConfirmedDrops] = useState<string[]>([])
-  const [missingStrategies, setMissingStrategies] = useState<Record<string, MissingStrategy>>({})
-  const [outlierTreatments, setOutlierTreatments] = useState<Record<string, OutlierTreatment>>({})
-
-  const setMissingStrategy = (col: string, s: MissingStrategy) =>
-    setMissingStrategies((prev) => ({ ...prev, [col]: s }))
-  const setOutlierTreatment = (col: string, t: OutlierTreatment) =>
-    setOutlierTreatments((prev) => ({ ...prev, [col]: t }))
 
   useEffect(() => {
     if (edaResult || !uploadResult || !targetCol || !taskType) return
@@ -1495,21 +1026,6 @@ export function Step4EDA() {
       {typed && activeInnerTab !== 'distributions' && activeInnerTab !== 'correlation' && (
         <div className="flex-1 overflow-y-auto p-6 pt-4 space-y-5">
           {activeInnerTab === 'overview' && <OverviewCards result={typed} targetCol={targetCol ?? ''} taskType={taskType ?? 'regression'} />}
-          {activeInnerTab === 'missing' && (
-            <DataCleaningPanel
-              missingData={typed.missing_data}
-              outliers={typed.outliers}
-              featureStats={typed.feature_stats}
-              targetCol={targetCol ?? ''}
-              missingStrategies={missingStrategies}
-              setMissingStrategy={setMissingStrategy}
-              outlierTreatments={outlierTreatments}
-              setOutlierTreatment={setOutlierTreatment}
-              confirmedDrops={confirmedDrops}
-              toggleDrop={toggleDrop}
-              distributions={typed.distributions}
-            />
-          )}
           {activeInnerTab === 'quality' && <QualityTable featureStats={typed.feature_stats} confirmedDrops={confirmedDrops} toggleDrop={toggleDrop} />}
           {activeInnerTab === 'bivariate' && <BivariatePanel distributions={typed.distributions} corrWithTarget={typed.correlation_with_target} taskType={taskType ?? 'regression'} targetCol={targetCol ?? ''} classBalance={typed.class_balance} />}
           {activeInnerTab === 'ai' && <AIInsightsPanel insights={typed.llm_insights} confirmedDrops={confirmedDrops} toggleDrop={toggleDrop} />}
@@ -1523,17 +1039,14 @@ export function Step4EDA() {
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             {(() => {
               const drops = confirmedDrops.length
-              const missing = Object.keys(missingStrategies).filter((k) => missingStrategies[k] !== 'skip').length
-              const outlier = Object.keys(outlierTreatments).filter((k) => outlierTreatments[k] !== 'keep').length
-              if (drops === 0 && missing === 0 && outlier === 0) return 'No cleaning actions set — all features confirmed'
-              return `${drops} drop${drops !== 1 ? 's' : ''} · ${missing} missing action${missing !== 1 ? 's' : ''} · ${outlier} outlier treatment${outlier !== 1 ? 's' : ''}`
+              return drops === 0 ? 'Analysis complete — all features confirmed' : `${drops} column${drops !== 1 ? 's' : ''} flagged for drop`
             })()}
           </div>
           <button
             onClick={() => {
               setCleaningPlan({
-                missingStrategies,
-                outlierTreatments,
+                missingStrategies: {},
+                outlierTreatments: {},
                 confirmedDrops,
                 constantValues: {},
               })
