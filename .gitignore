@@ -18,6 +18,8 @@ lib/
 lib64/
 parts/
 sdist/
+# Don't let the Python `lib/` rule above block frontend source
+!frontend-react/src/lib/
 var/
 wheels/
 share/python-wheels/
