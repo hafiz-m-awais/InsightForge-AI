@@ -9,12 +9,18 @@ COPY frontend-react/ ./
 RUN npm run build
 
 # ── Stage 2: Python / FastAPI backend ─────────────────────────────────────────
-FROM python:3.10-slim
+FROM python:3.11-slim-bookworm
 
 # Install system dependencies
+# wkhtmltopdf was removed from Debian Bookworm repos; install from upstream .deb
 RUN apt-get update && apt-get install -y \
     build-essential \
-    wkhtmltopdf \
+    curl \
+    libxrender1 libxext6 libfontconfig1 \
+    && curl -L -o /tmp/wkhtmltox.deb \
+       https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.bookworm_amd64.deb \
+    && apt-get install -y /tmp/wkhtmltox.deb \
+    && rm /tmp/wkhtmltox.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # HF Spaces requires a non-root user with UID 1000
