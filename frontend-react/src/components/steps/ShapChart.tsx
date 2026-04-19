@@ -62,8 +62,12 @@ export function ShapChart({ modelPath, features }: ShapChartProps) {
         body: JSON.stringify({ model_path: modelPath, features }),
       })
       if (!res.ok) {
-        const body = await res.json().catch(() => ({ detail: 'Unknown error' }))
-        throw new Error(body.detail ?? 'SHAP computation failed')
+        let detail = `SHAP error (HTTP ${res.status})`
+        try {
+          const body = await res.json()
+          detail = body.detail ?? body.message ?? JSON.stringify(body)
+        } catch { /* body not JSON */ }
+        throw new Error(detail)
       }
       const json: ShapResponse = await res.json()
       setData(json)

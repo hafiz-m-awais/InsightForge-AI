@@ -277,7 +277,7 @@ function OverviewCards({ result, targetCol, taskType }: {
                 ))}
               </div>
               <div className="h-36">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={td.labels.map((l, i) => ({ label: l, count: td.values[i] }))} margin={{ top: 4, right: 4, bottom: 20, left: 0 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#64748b' }} angle={-30} textAnchor="end" interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={36} />
@@ -439,7 +439,7 @@ function DistributionPanel({ distributions, confirmedDrops, toggleDrop, featureS
 
               {/* Chart */}
               <div className="px-4 pb-2 shrink-0" style={{ height: 175 }}>
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 24, left: 0 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#64748b' }} angle={-30} textAnchor="end" interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={36} />
@@ -817,7 +817,7 @@ function BivariatePanel({ distributions, corrWithTarget, taskType, targetCol, cl
                 <span className={cn('text-[11px] font-mono', corr >= 0 ? 'text-blue-400' : 'text-red-400')}>r = {corr.toFixed(3)}</span>
               </div>
               <div className="p-3 h-40">
-                <ResponsiveContainer width="100%" height="100%">
+                <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={data} margin={{ top: 4, right: 4, bottom: 16, left: 0 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 8, fill: '#64748b' }} interval="preserveStartEnd" angle={-20} textAnchor="end" />
                     <YAxis tick={{ fontSize: 8, fill: '#64748b' }} width={30} />
@@ -836,7 +836,7 @@ function BivariatePanel({ distributions, corrWithTarget, taskType, targetCol, cl
             <p className="text-xs font-semibold text-foreground">Class Balance — <span className="font-mono text-primary">{targetCol}</span></p>
           </div>
           <div className="p-4 h-48">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
               <BarChart data={Object.entries(classBalance).map(([k, v]) => ({ label: k, count: v }))} margin={{ top: 4, right: 4, bottom: 16, left: 0 }}>
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} />
                 <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={36} />

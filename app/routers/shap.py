@@ -225,7 +225,8 @@ async def shap_values_endpoint(req: ShapRequest):
             status_code=504,
             detail=f"SHAP computation timed out ({_SHAP_TIMEOUT_S} s).",
         )
-    except RuntimeError as exc:
+    except Exception as exc:
+        logger.exception("SHAP computation failed: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
     return result

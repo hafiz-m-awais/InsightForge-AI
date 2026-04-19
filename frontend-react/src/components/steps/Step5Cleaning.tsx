@@ -79,7 +79,7 @@ interface LeakageFlag  { col: string; reason: string }
 
 function MiniBar({ data, color }: { data: { label: string; value: number }[]; color: string }) {
   return (
-    <ResponsiveContainer width="100%" height={56}>
+    <ResponsiveContainer width="100%" height={56} minWidth={1} minHeight={1}>
       <BarChart data={data} margin={{ top: 2, right: 2, bottom: 0, left: 2 }} barCategoryGap="10%">
         <XAxis dataKey="label" tick={{ fontSize: 7, fill: '#64748b' }} interval="preserveStartEnd" />
         <YAxis hide />

@@ -476,7 +476,7 @@ export function Step3Target() {
                     </div>
                   )}
                   <div className="h-40 w-full">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                       <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
                         <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#94a3b8' }} />
                         <YAxis tick={{ fontSize: 10, fill: '#94a3b8' }} />
