@@ -2,8 +2,11 @@
 Interactive Prediction Playground routes.
 """
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from functools import lru_cache
+from pydantic import BaseModel, field_validator
 from pathlib import Path
+from typing import Union
+import asyncio
 import logging
 import joblib
 import numpy as np
@@ -13,6 +16,19 @@ router = APIRouter(prefix="/api", tags=["playground"])
 logger = logging.getLogger(__name__)
 
 _MODELS_DIR = Path("models").resolve()
+_PREDICT_TIMEOUT_S = 30  # seconds before a prediction is aborted with 504
+
+
+@lru_cache(maxsize=16)
+def _cached_load(path_str: str, mtime: float):
+    """Load a joblib artifact from disk; keyed on path + mtime so stale entries
+    are never served after the file is replaced."""
+    return joblib.load(path_str)
+
+
+def _load_artifact(path: Path):
+    """Return a cached joblib artifact, refreshing automatically when the file changes."""
+    return _cached_load(str(path), path.stat().st_mtime)
 
 
 def _safe_model_path(raw: str) -> Path:
@@ -25,49 +41,41 @@ def _safe_model_path(raw: str) -> Path:
 
 class PredictRequest(BaseModel):
     model_path: str
-    features: dict  # {feature_name: value}
+    features: dict[str, Union[str, int, float, None]]
+
+    @field_validator("features")
+    @classmethod
+    def validate_features(cls, v: dict) -> dict:
+        if not v:
+            raise ValueError("features must not be empty")
+        for key, val in v.items():
+            if not isinstance(key, str) or not key.strip():
+                raise ValueError(f"Feature keys must be non-empty strings, got: {key!r}")
+            if val is not None and not isinstance(val, (str, int, float)):
+                raise ValueError(
+                    f"Feature '{key}' has unsupported type {type(val).__name__!r}. "
+                    "Only str, int, float, or null are allowed."
+                )
+        return v
 
 
-@router.post("/predict")
-async def predict(request: PredictRequest):
-    """Load a saved model, apply the companion preprocessor (if present),
-    and return a prediction — exactly as a real ML pipeline would."""
-    try:
-        model_path = _safe_model_path(request.model_path)
-    except ValueError:
-        raise HTTPException(status_code=403, detail="Access denied: invalid model path.")
-
-    if not model_path.exists():
-        raise HTTPException(status_code=404, detail="Model file not found.")
-
-    try:
-        model = joblib.load(model_path)
-    except Exception as exc:
-        logger.error("Failed to load model %s: %s", model_path, exc)
-        raise HTTPException(status_code=500, detail="Failed to load model.")
-
-    # ── Load companion preprocessor (saved alongside the model at training time) ──
-    preprocessor_path = model_path.with_name(model_path.stem + "_preprocessor.joblib")
-    preprocessor: dict | None = None
-    if preprocessor_path.exists():
-        try:
-            preprocessor = joblib.load(preprocessor_path)
-        except Exception as exc:
-            logger.warning("Could not load preprocessor %s: %s", preprocessor_path, exc)
-
+def _run_prediction(model, preprocessor, features: dict) -> dict:
+    """Synchronous CPU-bound prediction work — runs in a thread pool."""
     applied_transformations: list[str] = []
+    warnings: list[str] = []
     missing_features: list[str] = []
     preprocessing_applied = False
+    feature_order: list[str] = []
 
     if preprocessor:
         numeric_cols:    list[str] = preprocessor.get("numeric_columns_seen", [])
         cat_cols:        list[str] = preprocessor.get("categorical_columns_seen", [])
         imputation:      dict      = preprocessor.get("imputation_values", {})
         encoders:        dict      = preprocessor.get("categorical_encoders", {})
-        feature_order:   list[str] = preprocessor.get("feature_order", [])
+        feature_order                = preprocessor.get("feature_order", [])
         fe_transforms:   dict      = preprocessor.get("fe_transforms", {})
 
-        row_data = dict(request.features)
+        row_data = dict(features)
 
         # Track features the model expects but weren't supplied
         all_expected = set(feature_order) if feature_order else (set(numeric_cols) | set(cat_cols))
@@ -81,21 +89,27 @@ async def predict(request: PredictRequest):
             val_str = str(row_data[col])
             known = set(le.classes_)
             if val_str not in known:
-                # Map to the most frequent class (first in sorted classes) as fallback
+                original = val_str
                 val_str = le.classes_[0]
-                applied_transformations.append(f"Mapped unseen '{col}' → '{val_str}'")
+                warnings.append(
+                    f"Unseen value '{original}' for feature '{col}' — "
+                    f"substituted with '{val_str}' (first known class). "
+                    f"Known values: {sorted(known)}"
+                )
             try:
                 row_data[col] = int(le.transform([val_str])[0])
                 applied_transformations.append(f"FE label-encoded '{col}': '{val_str}'")
             except Exception:
+                warnings.append(
+                    f"Encoding failed for feature '{col}' value '{val_str}' — substituted with 0."
+                )
                 row_data[col] = 0
 
         # ── 0b. FE-level: Apply scaler to numeric columns ────────────────────
         fe_scaler = fe_transforms.get("scaler")
         fe_scaler_cols: list[str] = fe_transforms.get("scaler_cols", [])
         if fe_scaler is not None and fe_scaler_cols:
-            import pandas as _pd_local
-            scale_input = _pd_local.DataFrame([{c: float(row_data.get(c, 0)) for c in fe_scaler_cols}])
+            scale_input = pd.DataFrame([{c: float(row_data.get(c, 0)) for c in fe_scaler_cols}])
             try:
                 scaled_vals = fe_scaler.transform(scale_input)[0]
                 for i, col in enumerate(fe_scaler_cols):
@@ -130,12 +144,24 @@ async def predict(request: PredictRequest):
                 val_str = str(row_data[col])
                 known = set(encoder.classes_)
                 if val_str not in known:
-                    val_str = "Unknown"
-                    applied_transformations.append(f"Mapped unseen '{col}' value → 'Unknown'")
+                    original = val_str
+                    # Try 'Unknown' sentinel first; if also unseen fall back to first known class
+                    if "Unknown" in known:
+                        val_str = "Unknown"
+                    else:
+                        val_str = encoder.classes_[0]
+                    warnings.append(
+                        f"Unseen value '{original}' for feature '{col}' — "
+                        f"substituted with '{val_str}'. "
+                        f"Known values: {sorted(known)}"
+                    )
                 try:
                     row_data[col] = int(encoder.transform([val_str])[0])
                     applied_transformations.append(f"Label-encoded '{col}'")
                 except Exception:
+                    warnings.append(
+                        f"Encoding failed for feature '{col}' value '{val_str}' — substituted with 0."
+                    )
                     row_data[col] = 0
 
         # ── 3. Build DataFrame in training column order ──────────────────────
@@ -146,28 +172,27 @@ async def predict(request: PredictRequest):
         preprocessing_applied = True
     else:
         # Fallback: build row from raw user input, coerce numerics
-        feature_order = list(request.features.keys())
-        row = pd.DataFrame([request.features])
+        feature_order = list(features.keys())
+        row = pd.DataFrame([features])
         for col in row.columns:
             row[col] = pd.to_numeric(row[col], errors="coerce")
             if row[col].isnull().any():
-                raise HTTPException(400, f"Invalid numeric value in {col}")
+                raise ValueError(f"Invalid numeric value in {col}")
 
     try:
         raw_pred = model.predict(row)[0]
     except Exception as exc:
-        logger.error("Prediction error: %s", exc)
-        raise HTTPException(status_code=400, detail=f"Prediction failed: {exc}")
+        raise RuntimeError(f"Prediction failed: {exc}") from exc
 
-    # Serialise numpy scalars
     prediction = raw_pred.item() if hasattr(raw_pred, "item") else raw_pred
-
     is_classifier = hasattr(model, "predict_proba")
+
     result: dict = {
         "prediction": prediction,
         "type": "classification" if is_classifier else "regression",
         "preprocessing_applied": preprocessing_applied,
         "applied_transformations": applied_transformations,
+        "warnings": warnings,
         "missing_features": missing_features,
         "feature_order": feature_order,
     }
@@ -179,7 +204,51 @@ async def predict(request: PredictRequest):
             result["probabilities"] = dict(zip(classes, [float(p) for p in proba]))
             result["confidence"] = float(np.max(proba))
         except Exception:
-            pass  # probabilities are best-effort
+            pass
+
+    return result
+
+
+@router.post("/predict")
+async def predict(request: PredictRequest):
+    """Load a saved model, apply the companion preprocessor (if present),
+    and return a prediction — exactly as a real ML pipeline would."""
+    try:
+        model_path = _safe_model_path(request.model_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: invalid model path.")
+
+    if not model_path.exists():
+        raise HTTPException(status_code=404, detail="Model file not found.")
+
+    try:
+        model = _load_artifact(model_path)
+    except Exception as exc:
+        logger.error("Failed to load model %s: %s", model_path, exc)
+        raise HTTPException(status_code=500, detail="Failed to load model.")
+
+    preprocessor_path = model_path.with_name(model_path.stem + "_preprocessor.joblib")
+    preprocessor: dict | None = None
+    if preprocessor_path.exists():
+        try:
+            preprocessor = _load_artifact(preprocessor_path)
+        except Exception as exc:
+            logger.warning("Could not load preprocessor %s: %s", preprocessor_path, exc)
+
+    loop = asyncio.get_event_loop()
+    try:
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, _run_prediction, model, preprocessor, dict(request.features)),
+            timeout=_PREDICT_TIMEOUT_S,
+        )
+    except asyncio.TimeoutError:
+        logger.error("Prediction timed out after %ss for model %s", _PREDICT_TIMEOUT_S, model_path)
+        raise HTTPException(status_code=504, detail=f"Prediction did not complete within {_PREDICT_TIMEOUT_S} seconds.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        logger.error("Prediction error: %s", exc)
+        raise HTTPException(status_code=400, detail=str(exc))
 
     return result
 
@@ -200,7 +269,7 @@ async def inspect_model(request: InspectRequest):
         raise HTTPException(status_code=404, detail="Model file not found.")
 
     try:
-        model = joblib.load(model_path)
+        model = _load_artifact(model_path)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load model: {exc}")
 
@@ -247,7 +316,7 @@ async def inspect_model(request: InspectRequest):
     preprocessor_meta: dict = {}
     if preprocessor_path.exists():
         try:
-            pp = joblib.load(preprocessor_path)
+            pp = _load_artifact(preprocessor_path)
             numeric_cols    = pp.get("numeric_columns_seen", [])
             cat_cols        = pp.get("categorical_columns_seen", [])
             encoders        = pp.get("categorical_encoders", {})

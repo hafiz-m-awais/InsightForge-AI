@@ -3,23 +3,32 @@ File management routes: download/list models and reports.
 """
 from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pathlib import Path
 import os
 import json
 from datetime import datetime
 
 router = APIRouter(prefix="/api", tags=["files"])
 
+_MODELS_DIR = Path("models").resolve()
+_UPLOAD_DIR = _MODELS_DIR / "uploaded"
+_MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200 MB hard cap
+# Joblib files are pickle (\x80) or gzip (\x1f\x8b) or zip (PK\x03\x04)
+_JOBLIB_MAGIC = (b"\x80", b"\x1f\x8b", b"PK\x03\x04")
+
 
 @router.get("/download-model")
 async def download_model(path: str):
     # Prevent path traversal: only allow paths inside the models/ directory
-    safe_base = os.path.realpath("models")
-    requested = os.path.realpath(path)
-    if not requested.startswith(safe_base):
+    try:
+        requested = Path(path).resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path.")
+    if not requested.is_relative_to(_MODELS_DIR):
         raise HTTPException(status_code=403, detail="Access denied")
-    if not os.path.exists(requested):
+    if not requested.exists():
         raise HTTPException(status_code=404, detail="Model not found")
-    return FileResponse(requested, media_type="application/octet-stream", filename=os.path.basename(requested))
+    return FileResponse(str(requested), media_type="application/octet-stream", filename=requested.name)
 
 
 @router.get("/list-models")
@@ -103,32 +112,40 @@ async def list_reports():
 @router.post("/upload-model")
 async def upload_model(file: UploadFile = File(...)):
     """Upload a .joblib model file for use in the Prediction Playground."""
-    if not (file.filename or "").endswith(".joblib"):
+    # 1. Extension check
+    filename = file.filename or "uploaded_model.joblib"
+    if not filename.lower().endswith(".joblib"):
         raise HTTPException(status_code=400, detail="Only .joblib model files are supported.")
 
-    upload_dir = os.path.join("models", "uploaded")
-    os.makedirs(upload_dir, exist_ok=True)
-
-    # Sanitize: strip any directory components from the filename
-    safe_name = os.path.basename(file.filename or "uploaded_model.joblib")
-    dest_path = os.path.join(upload_dir, safe_name)
-
-    # Verify the resolved path stays within models/uploaded/
-    base_real = os.path.realpath(upload_dir)
-    dest_real = os.path.realpath(dest_path)
-    if not dest_real.startswith(base_real):
-        raise HTTPException(status_code=400, detail="Invalid filename.")
-
-    content = await file.read()
+    # 2. Read with size cap to prevent DoS
+    content = await file.read(_MAX_UPLOAD_BYTES + 1)
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(content) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+        )
 
-    with open(dest_path, "wb") as f:
-        f.write(content)
+    # 3. Structural validation — must start with a known joblib/pickle magic byte sequence
+    if not any(content.startswith(magic) for magic in _JOBLIB_MAGIC):
+        raise HTTPException(
+            status_code=400,
+            detail="File does not appear to be a valid joblib model (unrecognised file format).",
+        )
+
+    # 4. Sanitise filename and enforce path containment with Path.is_relative_to()
+    safe_name = Path(filename).name  # strips any directory components
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dest_path = (_UPLOAD_DIR / safe_name).resolve()
+    if not dest_path.is_relative_to(_UPLOAD_DIR):
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+
+    dest_path.write_bytes(content)
 
     return {
         "filename": safe_name,
-        "filepath": dest_path,
+        "filepath": str(dest_path),
         "size_mb": round(len(content) / (1024 * 1024), 3),
     }
 
@@ -136,10 +153,13 @@ async def upload_model(file: UploadFile = File(...)):
 @router.get("/download-report")
 async def download_report(path: str):
     # Prevent path traversal
-    reports_base = os.path.realpath("reports")
-    real_path = os.path.realpath(path)
-    if not real_path.startswith(reports_base):
+    reports_base = Path("reports").resolve()
+    try:
+        real_path = Path(path).resolve()
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid path")
-    if not os.path.exists(real_path):
+    if not real_path.is_relative_to(reports_base):
+        raise HTTPException(status_code=400, detail="Invalid path")
+    if not real_path.exists():
         raise HTTPException(status_code=404, detail="Report not found")
-    return FileResponse(real_path, media_type="text/html", filename=os.path.basename(real_path))
+    return FileResponse(str(real_path), media_type="text/html", filename=real_path.name)

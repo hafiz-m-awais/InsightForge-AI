@@ -248,6 +248,36 @@ export async function runFeatureEngineering(params: {
   })
 }
 
+// ─── Step 7 — Feature Selection ────────────────────────────────────────────
+
+export async function runFeatureSelection(params: {
+  dataset_path: string
+  target_col: string
+  task_type: 'classification' | 'regression'
+  method: string
+  n_features?: number
+  correlation_threshold?: number
+  variance_threshold?: number
+}) {
+  return request<{
+    status: string
+    method: string
+    original_feature_count: number
+    selected_feature_count: number
+    reduction_percentage: number
+    selected_features: string[]
+    importance_scores: Record<string, number>
+    importance_ranking: [string, number][]
+    method_info: Record<string, unknown>
+    categorical_columns: string[]
+    numeric_columns: string[]
+    is_classification: boolean
+  }>('/feature-selection', {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+}
+
 // ─── Step 7 — Model Selection ────────────────────────────────────────────────
 
 export async function runModelTraining(params: {
@@ -366,6 +396,7 @@ export async function makePrediction(
     confidence?: number
     preprocessing_applied?: boolean
     applied_transformations?: string[]
+    warnings?: string[]
     missing_features?: string[]
     feature_order?: string[]
   }>('/predict', {

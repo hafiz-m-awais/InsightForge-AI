@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import { cn } from '@/lib/utils'
+import { makePrediction } from '@/api/client'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -60,6 +61,7 @@ interface PredictionResult {
   confidence?: number
   preprocessing_applied?: boolean
   applied_transformations?: string[]
+  warnings?: string[]
   missing_features?: string[]
   feature_order?: string[]
 }
@@ -164,7 +166,9 @@ function SmartFeatureForm({
       }
       const imp = imputationValues[f]
       const base = typeof imp === 'number' ? imp : 0
-      return [f, String((base + (Math.random() - 0.5) * base * 0.3).toFixed(2))]
+      // When base is 0, use a ±1 jitter range so the result is not always 0
+      const jitter = base !== 0 ? (Math.random() - 0.5) * Math.abs(base) * 0.3 : (Math.random() - 0.5) * 2
+      return [f, String((base + jitter).toFixed(2))]
     })))
   }
 
@@ -185,12 +189,8 @@ function SmartFeatureForm({
           payload[f] = v === '' ? v : isNaN(num) ? v : num
         }
       }
-      const res = await fetch('/api/predict', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model_path: modelPath, features: payload }),
-      })
-      if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as Record<string,string>).detail ?? `HTTP ${res.status}`) }
-      onResult(await res.json(), inputs)
+      const data = await makePrediction(modelPath, payload)
+      onResult(data, inputs)
     } catch (e) { setError(e instanceof Error ? e.message : 'Prediction failed.') }
     finally { setLoading(false) }
   }
@@ -395,6 +395,19 @@ function ResultPanel({ result }: { result: PredictionResult }) {
         </div>
       )}
 
+      {(result.warnings?.length ?? 0) > 0 && (
+        <div className="px-5 py-3 border-b border-primary/10 bg-amber-500/5">
+          <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 mb-1.5 flex items-center gap-1">
+            <AlertTriangle className="w-3 h-3" /> Unseen categorical value{result.warnings!.length > 1 ? 's' : ''} substituted
+          </p>
+          <ul className="space-y-0.5">
+            {result.warnings!.map((w, i) => (
+              <li key={i} className="text-[11px] text-amber-700 dark:text-amber-300">{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {(result.applied_transformations?.length ?? 0) > 0 && (
         <div className="px-5 py-3">
           <button onClick={() => setShowTransforms(v => !v)}
@@ -507,7 +520,7 @@ function ModelCard({ model, selected, onClick }: { model: DiskModel; selected: b
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function Step15PredictionPlayground() {
-  const { completeStep, tuningResult, modelSelectionResult, featureEngineeringResult } = usePipelineStore()
+  const { completeStep, tuningResult, modelSelectionResult, featureEngineeringResult, targetCol } = usePipelineStore()
 
   const [tab, setTab] = useState<SourceTab>('session')
   const [diskModels, setDiskModels] = useState<DiskModel[]>([])
@@ -521,15 +534,29 @@ export function Step15PredictionPlayground() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [result, setResult] = useState<PredictionResult | null>(null)
-  const [history, setHistory] = useState<HistoryEntry[]>([])
-  const historyIdRef = useRef(0)
+  const [history, setHistory] = useState<HistoryEntry[]>(() => {
+    try {
+      const stored = sessionStorage.getItem('playground_history')
+      return stored ? (JSON.parse(stored) as HistoryEntry[]) : []
+    } catch { return [] }
+  })
+  const historyIdRef = useRef(history.reduce((max, h) => Math.max(max, h.id), 0))
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Keep sessionStorage in sync with history state
+  useEffect(() => {
+    try { sessionStorage.setItem('playground_history', JSON.stringify(history)) } catch { /* quota exceeded — silently ignore */ }
+  }, [history])
 
   const exampleRow = useMemo<Record<string, string> | undefined>(() => {
     const rows = featureEngineeringResult?.preview
     if (!rows?.length) return undefined
-    return Object.fromEntries(Object.entries(rows[0]).map(([k, v]) => [k, v !== null && v !== undefined ? String(v) : '']))
-  }, [featureEngineeringResult])
+    return Object.fromEntries(
+      Object.entries(rows[0])
+        .filter(([k]) => k !== targetCol)
+        .map(([k, v]) => [k, v !== null && v !== undefined ? String(v) : ''])
+    )
+  }, [featureEngineeringResult, targetCol])
 
   const sessionFeatures = featureEngineeringResult?.features_after ?? []
   const sessionModels: { path: string; name: string; type: string; isBest: boolean }[] = []
@@ -559,23 +586,34 @@ export function Step15PredictionPlayground() {
 
   useEffect(() => {
     if (!selectedModel) { setInspection(null); setResult(null); return }
+    const controller = new AbortController()
     const run = async () => {
       setInspecting(true); setInspection(null); setResult(null)
-      if (tab === 'session' && sessionFeatures.length > 0) {
-        setInspection({ features: sessionFeatures, feature_types: {}, n_features: sessionFeatures.length, is_classifier: true, classes: [], model_type: selectedModel.type, preprocessor: { has_preprocessor: false } })
-        setInspecting(false); return
-      }
       try {
-        const res = await fetch('/api/inspect-model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_path: selectedModel.path }) })
+        const res = await fetch('/api/inspect-model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model_path: selectedModel.path }), signal: controller.signal })
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data: ModelInspection = await res.json()
-        if (!data.preprocessor?.has_preprocessor && sessionFeatures.length > 0 && data.features.length === 0) data.features = sessionFeatures
+        // Enrich with session features only when the model itself has none
+        if (sessionFeatures.length > 0 && data.features.length === 0) data.features = sessionFeatures
         setInspection(data)
-      } catch {
-        setInspection({ features: sessionFeatures, feature_types: {}, n_features: null, is_classifier: true, classes: [], model_type: selectedModel.type, preprocessor: { has_preprocessor: false } })
-      } finally { setInspecting(false) }
+      } catch (err) {
+        if ((err as Error).name === 'AbortError') return // request superseded — do nothing
+        // Last-resort fallback: use session features but mark unknowns explicitly
+        setInspection({
+          features: sessionFeatures,
+          feature_types: {},
+          n_features: sessionFeatures.length || null,
+          is_classifier: false,
+          classes: [],
+          model_type: selectedModel.type,
+          preprocessor: { has_preprocessor: false },
+        })
+      } finally {
+        if (!controller.signal.aborted) setInspecting(false)
+      }
     }
     run()
+    return () => controller.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedModel?.path])
 
@@ -753,7 +791,7 @@ export function Step15PredictionPlayground() {
                     {result && <ResultPanel result={result} />}
 
                     {/* Zone D — Prediction History */}
-                    <PredictionHistory history={history} onClear={() => setHistory([])} />
+                    <PredictionHistory history={history} onClear={() => { setHistory([]); try { sessionStorage.removeItem('playground_history') } catch { /* ignore */ } }} />
                   </>
                 )}
               </div>
