@@ -36,7 +36,7 @@ class LLMRouter:
                 for mod in model_strs:
                     models_list.append(ChatOpenAI(
                         base_url="https://openrouter.ai/api/v1",
-                        api_key=key,
+                        api_key=key,  # type: ignore
                         model=mod,
                         temperature=0.2
                     ))
@@ -50,7 +50,7 @@ class LLMRouter:
                 for mod in model_strs:
                     models_list.append(ChatGoogleGenerativeAI(
                         model=mod,
-                        google_api_key=key,
+                        google_api_key=key,  # type: ignore
                         temperature=0.2
                     ))
                     
@@ -63,7 +63,7 @@ class LLMRouter:
                 for mod in model_strs:
                     models_list.append(ChatGroq(
                         model_name=mod,
-                        api_key=key,
+                        api_key=key,  # type: ignore
                         temperature=0.2
                     ))
                     
@@ -76,7 +76,7 @@ class LLMRouter:
                 for mod in model_strs:
                     models_list.append(ChatOpenAI(
                         model=mod,
-                        api_key=key,
+                        api_key=key,  # type: ignore
                         temperature=0.2
                     ))
         else:

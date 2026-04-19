@@ -98,6 +98,35 @@ export async function profileDataset(dataset_path: string, provider: string) {
   })
 }
 
+export async function analyzeTarget(
+  dataset_path: string,
+  problem_statement: string,
+  provider: string
+) {
+  return request<{
+    analysis_summary: string
+    possible_problems: {
+      title: string
+      description: string
+      recommended_target: string
+      task_type: string
+      confidence: 'high' | 'medium' | 'low'
+      reasoning: string
+    }[]
+    primary_suggestion: {
+      target_col: string
+      task_type: string
+      explanation: string
+    }
+    problem_statement_insight: string
+    data_quality_flags: string[]
+    columns_to_exclude_suggestion: string[]
+  }>('/analyze-target', {
+    method: 'POST',
+    body: JSON.stringify({ dataset_path, problem_statement, provider }),
+  })
+}
+
 export async function validateTarget(
   dataset_path: string,
   target_col: string,

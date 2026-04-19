@@ -233,6 +233,7 @@ interface PipelineState {
   profileResult: ProfileResult | null
 
   // Step 3 — Target
+  problemStatement: string
   targetCol: string | null
   taskType: TaskType
   columnsToExclude: string[]
@@ -270,6 +271,7 @@ interface PipelineState {
   setProjectName: (name: string) => void
   setUploadResult: (result: UploadResult) => void
   setProfileResult: (result: ProfileResult) => void
+  setProblemStatement: (s: string) => void
   setTargetCol: (col: string) => void
   setTaskType: (type: TaskType) => void
   setColumnsToExclude: (cols: string[]) => void
@@ -313,6 +315,7 @@ export const usePipelineStore = create<PipelineState>()(
       projectName: 'New Project',
       uploadResult: null,
       profileResult: null,
+      problemStatement: '',
       targetCol: null,
       taskType: null,
       columnsToExclude: [],
@@ -333,6 +336,7 @@ export const usePipelineStore = create<PipelineState>()(
       setProjectName: (name) => set({ projectName: name }),
       setUploadResult: (result) => set({ uploadResult: result }),
       setProfileResult: (result) => set({ profileResult: result }),
+      setProblemStatement: (s) => set({ problemStatement: s }),
       setTargetCol: (col) => set({ targetCol: col }),
       setTaskType: (type) => set({ taskType: type }),
       setColumnsToExclude: (cols) => set({ columnsToExclude: cols }),

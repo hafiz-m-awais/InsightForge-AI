@@ -185,6 +185,138 @@ async def validate_target(request: ValidateTargetRequest):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Step 3b — AI Target Analysis (critical dataset analysis + problem suggestion)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class AnalyzeTargetRequest(BaseModel):
+    dataset_path: str
+    problem_statement: str = ""
+    provider: str = "openrouter"
+
+
+@router.post("/analyze-target")
+async def analyze_target(request: AnalyzeTargetRequest):
+    """
+    Critically analyze the dataset and suggest:
+    - Possible ML problems that can be solved with this data
+    - Recommended target column and task type
+    - Problem-statement-aware suggestion (if provided)
+    """
+    from app.agents.llm_router import get_llm
+    from langchain_core.messages import SystemMessage, HumanMessage
+    import json as _json
+
+    safe_path = _safe_dataset_path(request.dataset_path)
+
+    try:
+        df = load_dataset(safe_path)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not read dataset: {exc}")
+
+    # Build a compact schema summary for the LLM
+    rows, cols = df.shape
+    col_info = []
+    for col in df.columns:
+        dtype = str(df[col].dtype)
+        n_unique = int(df[col].nunique(dropna=True))
+        missing_pct = round(df[col].isna().mean() * 100, 1)
+        sample_vals: list = []
+        try:
+            sample_vals = df[col].dropna().head(5).tolist()
+            sample_vals = [str(v)[:50] for v in sample_vals]
+        except Exception:
+            pass
+        col_info.append({
+            "name": col,
+            "dtype": dtype,
+            "unique_values": n_unique,
+            "missing_pct": missing_pct,
+            "sample": sample_vals,
+        })
+
+    schema_str = _json.dumps(col_info, indent=2)
+    problem_stmt_section = (
+        f'\nUser\'s problem statement: "{request.problem_statement}"' if request.problem_statement.strip() else ""
+    )
+
+    prompt = f"""You are a senior data scientist. Critically analyze this dataset and provide structured insights.
+
+Dataset: {rows} rows × {cols} columns
+Column schema:
+{schema_str}
+{problem_stmt_section}
+
+Return a JSON object with EXACTLY this structure (no markdown, raw JSON only):
+{{
+  "analysis_summary": "2-3 sentence critical assessment of the dataset — data quality, structure, what it appears to represent, any concerns",
+  "possible_problems": [
+    {{
+      "title": "Short problem title",
+      "description": "What this ML problem would solve and why this data supports it",
+      "recommended_target": "exact_column_name",
+      "task_type": "classification|regression|timeseries",
+      "confidence": "high|medium|low",
+      "reasoning": "Why this target and task type makes sense given the data"
+    }}
+  ],
+  "primary_suggestion": {{
+    "target_col": "exact_column_name",
+    "task_type": "classification|regression|timeseries",
+    "explanation": "Why this is the best default choice"
+  }},
+  "problem_statement_insight": "If a problem statement was given, specifically address it and map it to the best target + task type. Otherwise leave empty string.",
+  "data_quality_flags": ["list of data quality concerns if any — e.g. high missing values, leakage risk, constant columns"],
+  "columns_to_exclude_suggestion": ["list of column names that look like IDs, emails, or obviously irrelevant identifiers"]
+}}
+
+Rules:
+- possible_problems should have 2-4 items covering different viable targets/approaches
+- recommended_target must be an exact column name from the schema above
+- If problem_statement is given, make sure the primary_suggestion directly addresses it
+- Be critical: flag real data quality issues, don't just be optimistic
+"""
+
+    try:
+        llm = get_llm(provider=request.provider)
+        response = llm.invoke([SystemMessage(content=prompt)])
+        raw = response.content.strip()
+        # Strip markdown code fences if present
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = _json.loads(raw.strip())
+    except Exception as exc:
+        # Fallback: simple heuristic suggestion
+        numeric_cols = df.select_dtypes(include="number").columns.tolist()
+        cat_cols = df.select_dtypes(include="object").columns.tolist()
+        last_col = df.columns[-1]
+        result = {
+            "analysis_summary": f"Dataset has {rows} rows and {cols} columns. Analysis via LLM failed ({exc}). Heuristic suggestions shown.",
+            "possible_problems": [
+                {
+                    "title": "Predict last column",
+                    "description": f"Use '{last_col}' as the prediction target.",
+                    "recommended_target": last_col,
+                    "task_type": "classification" if df[last_col].nunique() <= 20 else "regression",
+                    "confidence": "low",
+                    "reasoning": "Heuristic: last column is commonly the target.",
+                }
+            ],
+            "primary_suggestion": {
+                "target_col": last_col,
+                "task_type": "classification" if df[last_col].nunique() <= 20 else "regression",
+                "explanation": "Heuristic: last column selected as target.",
+            },
+            "problem_statement_insight": "",
+            "data_quality_flags": [],
+            "columns_to_exclude_suggestion": [],
+        }
+
+    return result
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Step 4 — EDA
 # ─────────────────────────────────────────────────────────────────────────────
 
