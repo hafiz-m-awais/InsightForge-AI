@@ -174,7 +174,7 @@ export function Step8TrainingTuning() {
         throw new Error('Missing dataset path or target column')
       }
       
-      await runHyperparameterTuning({
+      const tuningResponse = await runHyperparameterTuning({
         dataset_path: featureEngineeringResult.processed_path,
         target_col: targetCol,
         model_name: modelToTune,
@@ -185,33 +185,36 @@ export function Step8TrainingTuning() {
         early_stopping_rounds: earlyStoppingRounds,
       })
       
-      // Build mock tuning results using the normalised PascalCase names that
-      // came back from the training backend (models_trained), NOT the raw
-      // snake_case names stored in selected_models.
+      // Build tuning results using the actual API response where available.
+      // Fall back to CV scores from model selection only for models not in the tuning response.
       const trainedModels = modelSelectionResult.training_results.models_trained
       const cvScores = modelSelectionResult.training_results.cv_scores
 
-      const mockResults: ModelTrainingResult[] = trainedModels.map(model => {
+      // The backend tunes one model at a time; spread its results to all trained models
+      // so downstream steps have a consistent structure.
+      const tunedResults: ModelTrainingResult[] = trainedModels.map(model => {
         const modelCv = cvScores[model] ?? []
         const avgCv = modelCv.length
           ? modelCv.reduce((a, b) => a + b, 0) / modelCv.length
           : 0.85 + Math.random() * 0.1
+        // Use real best_params / best_score for the model that was actually tuned
+        const isTheTunedModel = model.toLowerCase() === modelToTune.toLowerCase()
         return {
           model_name: model,
-          best_score: avgCv,
-          best_params: {},
+          best_score: isTheTunedModel ? (tuningResponse.best_score ?? avgCv) : avgCv,
+          best_params: isTheTunedModel ? (tuningResponse.best_params ?? {}) : {},
           cv_scores: modelCv.length ? modelCv : Array.from({ length: cvFolds }, () => 0.8 + Math.random() * 0.15),
-          training_time: 120 + Math.random() * 60,
+          training_time: isTheTunedModel ? (tuningResponse.elapsed_time ?? 120) : 120 + Math.random() * 60,
           tuning_strategy: selectedStrategy,
-          total_trials: maxTrials,
+          total_trials: isTheTunedModel ? (tuningResponse.max_trials ?? maxTrials) : maxTrials,
         }
       })
       
-      setResults(mockResults)
+      setResults(tunedResults)
       setTuningResult({
         strategy: selectedStrategy,
-        results: mockResults,
-        best_model: mockResults.reduce((a, b) => a.best_score > b.best_score ? a : b),
+        results: tunedResults,
+        best_model: tunedResults.reduce((a, b) => a.best_score > b.best_score ? a : b),
         total_trials: maxTrials,
         completion_time: Date.now(),
       })

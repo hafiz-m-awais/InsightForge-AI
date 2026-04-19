@@ -182,8 +182,11 @@ export function Step9Evaluation() {
       return
     }
 
-    const datasetPath = featureEngineeringResult?.processed_path ?? uploadResult.dataset_path
-
+    const datasetPath = featureEngineeringResult?.processed_path
+    if (!datasetPath) {
+      setError('Feature engineering result is missing. Complete Step 6 before running evaluation.')
+      return
+    }
     setRunning(true)
     setError(null)
     addLog(`[Step 9] Evaluating models with ${selectedMetrics.length} metrics...`, 'info')
@@ -216,75 +219,12 @@ export function Step9Evaluation() {
         confusion_matrix: result.confusion_matrix || [],
         predictions: result.predictions || [],
         validation_score: result.metrics?.primary_metric || 0,
-        training_time: 0, // Not provided in evaluation response
-        cross_val_scores: [], // Not provided in evaluation response  
+        training_time: 0,
+        cross_val_scores: [],
       })) || []
 
-      // Fallback to mock data if no response
       if (evaluations.length === 0) {
-        const mockEvaluations: ModelEvaluation[] = tuningResult.results.map(model => {
-          const metrics: Record<string, number> = {}
-          
-          // Generate realistic metric values
-          selectedMetrics.forEach(metric => {
-            if (taskType === 'classification') {
-              switch (metric) {
-                case 'accuracy':
-                  metrics[metric] = 0.75 + Math.random() * 0.2
-                  break
-                case 'precision':
-                case 'recall':
-                case 'f1_score':
-                  metrics[metric] = 0.7 + Math.random() * 0.25
-                  break
-                case 'roc_auc':
-                  metrics[metric] = 0.8 + Math.random() * 0.15
-                  break
-              }
-            } else {
-              switch (metric) {
-                case 'mae':
-                  metrics[metric] = Math.random() * 10 + 2
-                  break
-                case 'mse':
-                case 'mse':
-                  metrics[metric] = Math.random() * 100 + 10
-                  break
-                case 'rmse':
-                  metrics[metric] = Math.sqrt(metrics.mse || Math.random() * 100 + 10)
-                  break
-                case 'r2_score':
-                  metrics[metric] = 0.6 + Math.random() * 0.3
-                  break
-                case 'mape':
-                  metrics[metric] = Math.random() * 20 + 5
-                  break
-              }
-            }
-          })
-
-          return {
-            model_name: model.model_name,
-            metrics,
-            feature_importance: includeFeatureImportance ? [
-              { feature: 'feature_1', importance: Math.random() },
-              { feature: 'feature_2', importance: Math.random() },
-              { feature: 'feature_3', importance: Math.random() },
-              { feature: 'feature_4', importance: Math.random() },
-              { feature: 'feature_5', importance: Math.random() },
-            ].sort((a, b) => b.importance - a.importance) : undefined,
-            confusion_matrix: taskType === 'classification' && includeVisualizations ? [
-              [Math.floor(Math.random() * 50 + 80), Math.floor(Math.random() * 20 + 5)],
-              [Math.floor(Math.random() * 15 + 5), Math.floor(Math.random() * 50 + 85)]
-            ] : [],
-            predictions: [],
-            validation_score: model.best_score,
-            training_time: 0,
-            cross_val_scores: model.cv_scores || []
-          }
-        })
-        
-        evaluations.push(...mockEvaluations)
+        throw new Error('Evaluation returned no results. Check that the dataset path and model files are valid.')
       }
 
       const evaluationResult: EvaluationResult = {

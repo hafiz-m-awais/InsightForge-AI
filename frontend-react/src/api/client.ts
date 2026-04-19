@@ -316,9 +316,14 @@ export async function runHyperparameterTuning(params: {
   early_stopping_rounds: number
 }) {
   return request<{
-    tuning_id: string
+    job_id: string
     status: string
-    message: string
+    strategy: string
+    max_trials: number
+    best_params: Record<string, unknown>
+    best_score: number
+    optimization_history: Array<{ trial: number; score: number; params: Record<string, unknown>; duration: number }>
+    elapsed_time: number
   }>('/hyperparameter-tuning', {
     method: 'POST',
     body: JSON.stringify(params),
