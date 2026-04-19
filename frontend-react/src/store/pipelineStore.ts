@@ -399,14 +399,16 @@ export const usePipelineStore = create<PipelineState>()(
     }),
     {
       name: 'insightforge-pipeline',
-      version: 3,
+      // Bumped to 4: persists currentStep + Steps 4-12 results
+      version: 4,
       migrate: () => ({
-        currentStep: 1,
+        currentStep: 0,
         stepStatuses: initialStepStatuses,
         provider: 'openrouter',
         projectName: 'New Project',
         uploadResult: null,
         profileResult: null,
+        problemStatement: '',
         targetCol: null,
         taskType: null,
         columnsToExclude: [],
@@ -422,30 +424,76 @@ export const usePipelineStore = create<PipelineState>()(
         comparisonResult: null,
       }),
       partialize: (state) => ({
-        // currentStep intentionally excluded — always start on Dashboard (step 0)
+        // Restore user to the step they were on
+        currentStep: state.currentStep,
         stepStatuses: state.stepStatuses,
         provider: state.provider,
         projectName: state.projectName,
-        // Persist uploadResult but strip the large preview array
+        problemStatement: state.problemStatement,
+
+        // Step 1 — strip large preview rows
         uploadResult: state.uploadResult
           ? { ...state.uploadResult, preview: [] }
           : null,
-        // Persist profileResult but strip per-column detail arrays
+
+        // Step 2 — strip large per-column maps; keep shape/quality summary/risks
         profileResult: state.profileResult
           ? {
               ...state.profileResult,
-              // risks and recommendations are small; missing/dtypes omitted
               dtypes: {},
               missing: {},
             }
           : null,
+
+        // Step 3
         targetCol: state.targetCol,
         taskType: state.taskType,
         columnsToExclude: state.columnsToExclude,
         targetValidation: state.targetValidation,
-        // edaResult is intentionally NOT persisted — correlation_matrix can be
-        // 100s of KB and will blow localStorage for wide datasets.
-        edaResult: null,
+
+        // Step 4 — strip heavy distribution + correlation data; keep llm_insights
+        edaResult: state.edaResult
+          ? {
+              distributions: {},
+              correlation_matrix: {},
+              class_balance: state.edaResult.class_balance,
+              outliers: state.edaResult.outliers,
+              leakage_flags: state.edaResult.leakage_flags,
+              llm_insights: state.edaResult.llm_insights,
+            }
+          : null,
+
+        // Step 5
+        cleaningPlan: state.cleaningPlan,
+        cleaningResult: state.cleaningResult
+          ? { ...state.cleaningResult, preview: [] }
+          : null,
+
+        // Step 6
+        featureEngineeringConfig: state.featureEngineeringConfig,
+        featureEngineeringResult: state.featureEngineeringResult
+          ? { ...state.featureEngineeringResult, preview: [] }
+          : null,
+
+        // Steps 9-12 — strip per-row prediction arrays to save space
+        modelSelectionResult: state.modelSelectionResult,
+        tuningResult: state.tuningResult,
+        evaluationResult: state.evaluationResult
+          ? {
+              ...state.evaluationResult,
+              evaluations: state.evaluationResult.evaluations.map((e) => ({
+                ...e,
+                predictions_vs_actual: [],
+                roc_curve: e.roc_curve
+                  ? { fpr: [], tpr: [], auc: e.roc_curve.auc }
+                  : undefined,
+                pr_curve: e.pr_curve
+                  ? { precision: [], recall: [], auc: e.pr_curve.auc }
+                  : undefined,
+              })),
+            }
+          : null,
+        comparisonResult: state.comparisonResult,
       }),
     }
   )

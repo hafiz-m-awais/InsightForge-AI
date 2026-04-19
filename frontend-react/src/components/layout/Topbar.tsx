@@ -1,6 +1,6 @@
 import { usePipelineStore } from '@/store/pipelineStore'
 import { cn } from '@/lib/utils'
-import { ChevronRight, LayoutDashboard } from 'lucide-react'
+import { ChevronRight, LayoutDashboard, RotateCcw } from 'lucide-react'
 
 const PROVIDERS = ['openrouter', 'gemini', 'groq', 'openai']
 
@@ -22,7 +22,7 @@ const STEP_GROUP: Record<number, string> = {
 }
 
 export function Topbar() {
-  const { provider, setProvider, currentStep, stepStatuses, setCurrentStep } = usePipelineStore()
+  const { provider, setProvider, currentStep, stepStatuses, setCurrentStep, reset } = usePipelineStore()
 
   const completedCount = Object.values(stepStatuses).filter(s => s === 'completed').length
   const total = 15
@@ -85,6 +85,24 @@ export function Topbar() {
           ))}
         </select>
       </div>
+
+      {/* New Session */}
+      <button
+        onClick={() => {
+          if (window.confirm('Start a new session? All current progress will be cleared.')) {
+            reset()
+          }
+        }}
+        title="New Session — clears all progress"
+        className={cn(
+          'flex items-center gap-1 px-2 py-1 rounded text-xs text-muted-foreground',
+          'border border-border hover:border-destructive/50 hover:text-destructive',
+          'transition-colors shrink-0'
+        )}
+      >
+        <RotateCcw className="w-3 h-3" />
+        <span className="hidden md:block">New Session</span>
+      </button>
     </header>
   )
 }
