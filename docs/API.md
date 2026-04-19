@@ -95,20 +95,29 @@ Compute full EDA: distributions, correlation matrix, class balance, outliers, le
 
 ---
 
-## Pipeline — `app/routers/pipeline.py`
+## Data Processing (continued) — `app/routers/data.py`
 
-### `POST /api/clean-data`
+### `POST /api/clean`
 Apply cleaning plan (missing value strategies + outlier treatments).
 
 **Body:**
 ```json
 {
   "dataset_path": "datasets/data_abc123.csv",
-  "target_col": "churn",
   "missing_strategies": { "age": "impute_median" },
   "outlier_treatments": { "income": "clip_iqr" },
-  "confirmed_drops": ["id_col"],
+  "columns_to_drop": ["id_col"],
   "constant_values": {}
+}
+```
+
+**Response:**
+```json
+{
+  "cleaned_path": "datasets/data_abc123_cleaned.csv",
+  "rows_before": 10000,
+  "rows_after": 9850,
+  "changes_applied": [...]
 }
 ```
 
@@ -153,18 +162,35 @@ Train selected models with cross-validation.
 ---
 
 ### `POST /api/hyperparameter-tuning`
-Run hyperparameter optimisation on trained models.
+Run hyperparameter optimisation for a single model.
 
 **Body:**
 ```json
 {
   "dataset_path": "datasets/data_abc123_engineered.csv",
   "target_col": "churn",
-  "models": ["GradientBoosting"],
-  "strategy": "random",
-  "n_trials": 50,
+  "model_name": "GradientBoosting",
+  "strategy": "random_search",
+  "max_trials": 50,
+  "cv_folds": 5,
   "timeout_minutes": 30,
-  "early_stop_rounds": 10
+  "early_stopping_rounds": 10
+}
+```
+
+**Response:**
+```json
+{
+  "job_id": "abc123",
+  "status": "completed",
+  "strategy": "random_search",
+  "max_trials": 50,
+  "best_params": { "n_estimators": 200, "max_depth": 5 },
+  "best_score": 0.923,
+  "optimization_history": [
+    { "trial": 1, "score": 0.891, "params": {...}, "duration": 3.2 }
+  ],
+  "elapsed_time": 47.6
 }
 ```
 
@@ -172,22 +198,47 @@ Run hyperparameter optimisation on trained models.
 
 ## Evaluation — `app/routers/evaluation.py`
 
-### `POST /api/evaluate-models`
-Evaluate models on a held-out test set.
+### `POST /api/model-evaluation`
+Evaluate tuned models on a held-out test split.
 
 **Body:**
 ```json
 {
   "dataset_path": "datasets/data_abc123_engineered.csv",
   "target_col": "churn",
-  "tuning_results": { ... }
+  "tuning_results": { "strategy": "random_search", "results": [...], "best_model": "...", "total_trials": 50, "completion_time": 1714000000 },
+  "metrics": ["accuracy", "precision", "recall", "f1_score", "roc_auc"],
+  "test_size": 0.2,
+  "include_visualizations": true,
+  "include_feature_importance": true
 }
 ```
 
+**Response:**
+```json
+{
+  "job_id": "abc123",
+  "status": "completed",
+  "evaluation_results": [
+    {
+      "model_name": "GradientBoosting",
+      "metrics": { "accuracy": 0.923, "f1_score": 0.911 },
+      "confusion_matrix": [[85,5],[8,92]],
+      "feature_importance": [...]
+    }
+  ],
+  "dataset_info": { "total_samples": 1000, "test_samples": 200 }
+}
+```
+
+> **Note:** Requires `featureEngineeringResult.processed_path` — passing the raw upload path will produce incorrect results because preprocessing (encoding, scaling) has not been applied.
+
 ---
 
-### `POST /api/compare-models`
-Rank models across multiple metrics and produce a recommendation.
+### `POST /api/evaluation-report-real`
+Generate a full HTML evaluation report.
+
+> **Deprecated endpoint:** `POST /api/evaluation-report` returns HTTP 410.
 
 ---
 
@@ -288,7 +339,7 @@ Timeout: **120 seconds** (returns HTTP 504 if exceeded).
 
 ## Files — `app/routers/files.py`
 
-### `GET /api/list-saved-models`
+### `GET /api/list-models`
 List all `.joblib` model files in the `models/` directory.
 
 ### `GET /api/list-datasets`

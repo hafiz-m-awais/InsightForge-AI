@@ -4,6 +4,30 @@ All notable changes are documented here in reverse chronological order, grouped 
 
 ---
 
+## Session: April 20, 2026 (continued)
+
+### `c8a029e` — fix: data consistency across pipeline Steps 8–9
+**Files changed:** `frontend-react/src/api/client.ts`, `Step8TrainingTuning.tsx`, `Step9Evaluation.tsx`
+
+Four independent data-consistency bugs found during full pipeline audit.
+
+**Bug 1 — `client.ts` tuning return type wrong:**
+`runHyperparameterTuning` declared its return as `{ tuning_id, status, message }` but the backend actually returns `{ job_id, status, strategy, max_trials, best_params, best_score, optimization_history, elapsed_time }`. TypeScript was hiding the real response shape from downstream consumers.
+
+**Bug 2 — Step 8 discarded real tuning response:**
+After calling `runHyperparameterTuning`, the response was immediately discarded and a `mockResults` array was built with `best_params: {}` always empty. Downstream Steps 9–11 therefore never received real hyperparameters.
+Fixed to capture `tuningResponse` and use `best_params`, `best_score`, and `elapsed_time` from the API for the model that was actually tuned. Other models fall back to their CV scores from Step 7.
+
+**Bug 3 — Step 9 silently replaced API failures with random metrics:**
+When `evaluation_results` was an empty array (e.g. model files missing or wrong path), a ~50-line mock block generated random values (e.g. `accuracy = 0.75 + Math.random() * 0.2`). Users saw plausible-looking results with no indication the real evaluation had failed.
+Fixed to throw an explicit error: `"Evaluation returned no results. Check that the dataset path and model files are valid."`
+
+**Bug 4 — Step 9 fell back to raw dataset path:**
+`datasetPath = featureEngineeringResult?.processed_path ?? uploadResult.dataset_path` — the fallback bypassed all cleaning and feature engineering, passing unprocessed data to model evaluation.
+Fixed to require `featureEngineeringResult.processed_path`; returns a clear error if it is absent.
+
+---
+
 ## Session: April 20, 2026
 
 ### `6b54fc1` — feat: full pipeline state persistence across page refresh
