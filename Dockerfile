@@ -12,15 +12,9 @@ RUN npm run build
 FROM python:3.11-slim-bookworm
 
 # Install system dependencies
-# wkhtmltopdf was removed from Debian Bookworm repos; install from upstream .deb
+# wkhtmltopdf is not available on bookworm; report.py falls back to HTML gracefully
 RUN apt-get update && apt-get install -y \
     build-essential \
-    curl \
-    libxrender1 libxext6 libfontconfig1 \
-    && curl -L -o /tmp/wkhtmltox.deb \
-       https://github.com/wkhtmltopdf/wkhtmltopdf/releases/download/0.12.6.1-2/wkhtmltox_0.12.6.1-2.bookworm_amd64.deb \
-    && apt-get install -y /tmp/wkhtmltox.deb \
-    && rm /tmp/wkhtmltox.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # HF Spaces requires a non-root user with UID 1000
