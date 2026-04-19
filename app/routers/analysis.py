@@ -28,6 +28,7 @@ UPLOAD_DIR = "datasets"
 class FeatureSelectionRequest(BaseModel):
     dataset_path: str
     target_col: str
+    task_type: str = "classification"  # classification | regression
     method: str = "correlation"  # correlation | mutual_info | chi2 | anova_f | rfe | lasso | tree_importance
     n_features: int = 10
     correlation_threshold: float = 0.1
@@ -57,7 +58,7 @@ async def feature_selection(request: FeatureSelectionRequest):
             X_processed[col] = np.array(le.fit_transform(X[col].astype(str)), dtype=int)
             label_encoders[col] = le
 
-        is_classification = y.dtype == "object" or len(y.unique()) < 20
+        is_classification = request.task_type == "classification"
         y_encoded = np.array(LabelEncoder().fit_transform(y)) if (is_classification and y.dtype == "object") else y
 
         selected_features: list = []

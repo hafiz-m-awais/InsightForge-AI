@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { runFeatureSelection as runFeatureSelectionApi } from '@/api/client'
 import { usePipelineStore } from '@/store/pipelineStore'
 import {
   Zap,
@@ -119,23 +120,46 @@ export function Step7FeatureSelection() {
     addLog('Starting feature selection analysis...', 'info')
 
     try {
-      // Simulate feature selection process
-      await new Promise(resolve => setTimeout(resolve, 2000))
-      
-      // Mock feature importance results
-      const mockImportances: FeatureImportance[] = availableFeatures
-        .slice(0, config.top_k_features)
-        .map((feature, idx) => ({
-          feature,
-          importance: Math.random() * (0.8 - 0.1) + 0.1,
-          method: config.methods[idx % config.methods.length]
-        }))
-        .sort((a, b) => b.importance - a.importance)
+      const methodsToRun = config.methods.length > 0 ? config.methods : ['correlation']
+      const effectiveTaskType = (taskType === 'classification' || taskType === 'regression')
+        ? taskType
+        : 'classification'
 
-      setFeatureImportances(mockImportances)
-      setSelectedFeatures(mockImportances.map(f => f.feature))
-      
-      addLog(`Feature selection completed. Selected ${mockImportances.length} features.`, 'success')
+      addLog(`Running ${methodsToRun.length} method(s): ${methodsToRun.join(', ')}`, 'info')
+
+      const responses = await Promise.all(
+        methodsToRun.map((method) =>
+          runFeatureSelectionApi({
+            dataset_path: featureEngineeringResult.processed_path,
+            target_col: targetCol,
+            task_type: effectiveTaskType,
+            method,
+            n_features: config.top_k_features,
+            correlation_threshold: config.correlation_threshold,
+            variance_threshold: config.variance_threshold,
+          })
+        )
+      )
+
+      // Merge importance scores across methods — keep highest score per feature
+      const bestScores = new Map<string, { importance: number; method: string }>()
+      for (const res of responses) {
+        for (const [feature, score] of res.importance_ranking) {
+          const current = bestScores.get(feature)
+          if (!current || score > current.importance) {
+            bestScores.set(feature, { importance: score, method: res.method })
+          }
+        }
+      }
+
+      const merged: FeatureImportance[] = Array.from(bestScores.entries())
+        .map(([feature, { importance, method }]) => ({ feature, importance, method }))
+        .sort((a, b) => b.importance - a.importance)
+        .slice(0, config.top_k_features)
+
+      setFeatureImportances(merged)
+      setSelectedFeatures(merged.map(f => f.feature))
+      addLog(`Feature selection completed. Selected ${merged.length} features.`, 'success')
     } catch (error) {
       addLog(`Feature selection failed: ${error}`, 'error')
     } finally {

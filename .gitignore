@@ -273,9 +273,12 @@ scratch_*.py
 # Backup files
 app/*_backup.py
 
-# Test files (development artifacts)
-test_*.py
-test_*.html
+# Test files (development artifacts — root-level scratch only)
+/test_*.py
+/test_*.html
+# Always track the tests/ directory
+!tests/
+!tests/**
 
 # Generated content
 plots/
