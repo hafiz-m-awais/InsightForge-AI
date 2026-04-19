@@ -307,7 +307,7 @@ const initialStepStatuses: Record<number, StepStatus> = {
 export const usePipelineStore = create<PipelineState>()(
   persist(
     (set) => ({
-      currentStep: 1,
+      currentStep: 0,
       stepStatuses: initialStepStatuses,
       provider: 'openrouter',
       projectName: 'New Project',
@@ -418,7 +418,7 @@ export const usePipelineStore = create<PipelineState>()(
         comparisonResult: null,
       }),
       partialize: (state) => ({
-        currentStep: state.currentStep,
+        // currentStep intentionally excluded — always start on Dashboard (step 0)
         stepStatuses: state.stepStatuses,
         provider: state.provider,
         projectName: state.projectName,
