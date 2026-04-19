@@ -375,6 +375,7 @@ async def inspect_model(request: InspectRequest):
                 "has_scaler": fe_transforms.get("scaler") is not None,
                 "scaling_method": fe_transforms.get("scaling_method", "none"),
                 "feature_stats": pp.get("feature_stats", {}),
+                "ohe_groups": fe_transforms.get("onehot_dummies", {}),  # {original_col: [ohe_col_names]}
             }
         except Exception as exc:
             logger.warning("Could not parse preprocessor for inspect: %s", exc)

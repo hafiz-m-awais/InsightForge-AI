@@ -46,6 +46,7 @@ interface PreprocessorMeta {
   has_scaler?: boolean
   scaling_method?: string
   feature_stats?: Record<string, { min: number; max: number; mean: number }>
+  ohe_groups?: Record<string, string[]>  // original_col → [ohe_col_names]
 }
 
 interface ModelInspection {
@@ -146,24 +147,75 @@ function SmartFeatureForm({
   const feCatCols = new Set<string>(pp.fe_categorical_columns ?? pp.categorical_columns ?? [])
   const hasScaler = pp.has_scaler && pp.scaling_method && pp.scaling_method !== 'none'
 
+  // ── OHE group helpers ────────────────────────────────────────────────────
+  // oheGroups: { "payment_method": ["payment_method_Bank transfer", ...], ... }
+  const oheGroups = pp.ohe_groups ?? {}
+  // reverse lookup: ohe col → original col name
+  const oheColToOrig: Record<string, string> = {}
+  // original col → list of category labels (strip prefix)
+  const oheGroupCategories: Record<string, string[]> = {}
+  for (const [orig, oheCols] of Object.entries(oheGroups)) {
+    for (const oheCol of oheCols) {
+      oheColToOrig[oheCol] = orig
+      const category = oheCol.slice(orig.length + 1) // strip "payment_method_"
+      if (!oheGroupCategories[orig]) oheGroupCategories[orig] = []
+      oheGroupCategories[orig].push(category)
+    }
+  }
+  const oheOrigSet = new Set(Object.keys(oheGroups))     // original col names
+  const oheExpandedSet = new Set(Object.keys(oheColToOrig)) // all expanded OHE cols
+
+  // Build a virtual feature list: OHE expanded cols → collapsed to one entry per group
+  const virtualFeatures = useMemo(() => {
+    const seen = new Set<string>()
+    const out: string[] = []
+    for (const f of features) {
+      if (oheExpandedSet.has(f)) {
+        const orig = oheColToOrig[f]
+        if (!seen.has(orig)) { seen.add(orig); out.push(orig) }
+      } else {
+        out.push(f)
+      }
+    }
+    return out
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [features.join(','), Object.keys(oheGroups).join(',')])
+
+  // inputs keyed by virtual feature names (original col for OHE groups, real col otherwise)
   const [inputs, setInputs] = useState<Record<string, string>>(() =>
-    Object.fromEntries(features.map(f => [f, ''])),
+    Object.fromEntries(virtualFeatures.map(f => [f, ''])),
   )
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    setInputs(Object.fromEntries(features.map(f => [f, ''])))
+    setInputs(Object.fromEntries(virtualFeatures.map(f => [f, ''])))
     setError(null)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelPath, features.join(',')])
+  }, [modelPath, virtualFeatures.join(',')])
 
   const fillExample = () => {
-    if (exampleRow) setInputs(prev => ({ ...prev, ...Object.fromEntries(features.map(f => [f, String(exampleRow[f] ?? '')])) }))
+    if (!exampleRow) return
+    const next: Record<string, string> = {}
+    for (const f of virtualFeatures) {
+      if (oheOrigSet.has(f)) {
+        // Find which OHE column is '1' in the example row → decode to category label
+        const oheCols = oheGroups[f] ?? []
+        const activeCol = oheCols.find(c => String(exampleRow[c]) === '1')
+        next[f] = activeCol ? activeCol.slice(f.length + 1) : ''
+      } else {
+        next[f] = String(exampleRow[f] ?? '')
+      }
+    }
+    setInputs(prev => ({ ...prev, ...next }))
   }
 
   const fillRandom = () => {
-    setInputs(Object.fromEntries(features.map(f => {
+    setInputs(Object.fromEntries(virtualFeatures.map(f => {
+      if (oheOrigSet.has(f)) {
+        const cats = oheGroupCategories[f] ?? []
+        return [f, cats[Math.floor(Math.random() * cats.length)] ?? '']
+      }
       const isCat = feCatCols.has(f) || featureTypes[f] === 'categorical'
       if (isCat) {
         const opts = catOptions[f] ?? []
@@ -171,7 +223,6 @@ function SmartFeatureForm({
       }
       const stats = featureStats[f]
       if (stats) {
-        // Use real-world min/max range for a meaningful random value
         const val = stats.min + Math.random() * (stats.max - stats.min)
         return [f, String(val.toFixed(2))]
       }
@@ -188,15 +239,21 @@ function SmartFeatureForm({
     try {
       const payload: Record<string, string | number> = {}
       for (const f of features) {
-        const v = inputs[f] ?? ''
-        const isCat = feCatCols.has(f) || featureTypes[f] === 'categorical'
-        if (isCat) {
-          // Send string value — backend will label-encode it
-          payload[f] = v
+        if (oheExpandedSet.has(f)) {
+          // Expand OHE group: selected category → 1, others → 0
+          const orig = oheColToOrig[f]
+          const selectedCat = inputs[orig] ?? ''
+          const expectedCol = orig + '_' + selectedCat
+          payload[f] = f === expectedCol ? 1 : 0
         } else {
-          const num = Number(v)
-          // Send raw numeric value — backend will scale it
-          payload[f] = v === '' ? v : isNaN(num) ? v : num
+          const v = inputs[f] ?? ''
+          const isCat = feCatCols.has(f) || featureTypes[f] === 'categorical'
+          if (isCat) {
+            payload[f] = v
+          } else {
+            const num = Number(v)
+            payload[f] = v === '' ? v : isNaN(num) ? v : num
+          }
         }
       }
       const data = await makePrediction(modelPath, payload)
@@ -205,12 +262,11 @@ function SmartFeatureForm({
     finally { setLoading(false) }
   }
 
-  // Separate columns: categoricals (with string options) vs numerics (raw real-world values)
-  // feCatCols are the columns that had real string values before encoding (e.g. Sex: male/female)
-  const catCols = features.filter(f => feCatCols.has(f) || featureTypes[f] === 'categorical')
+  // Separate virtual features into groups for rendering
+  const catCols = virtualFeatures.filter(f => oheOrigSet.has(f) || feCatCols.has(f) || featureTypes[f] === 'categorical')
   const catColSet = new Set(catCols)
-  const numericCols = features.filter(f => !catColSet.has(f) && pp.has_preprocessor)
-  const unknownCols = !pp.has_preprocessor ? features : []
+  const numericCols = virtualFeatures.filter(f => !catColSet.has(f) && pp.has_preprocessor)
+  const unknownCols = !pp.has_preprocessor ? virtualFeatures : []
 
   return (
     <div className="space-y-5">
@@ -286,6 +342,25 @@ function SmartFeatureForm({
           <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Categorical Features ({catCols.length})</p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {catCols.map(f => {
+              // OHE group: show a single dropdown, options are the original category labels
+              if (oheOrigSet.has(f)) {
+                const cats = oheGroupCategories[f] ?? []
+                return (
+                  <div key={f} className="space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[9px] font-bold uppercase tracking-wide px-1 py-0.5 rounded bg-violet-500/10 text-violet-500">ohe</span>
+                      <label className="text-xs font-medium truncate flex-1" title={f}>{f}</label>
+                    </div>
+                    <select value={inputs[f] ?? ''} onChange={e => setInputs(p => ({ ...p, [f]: e.target.value }))}
+                      className="flex h-8 w-full rounded-md border border-input bg-background px-3 py-1 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors">
+                      <option value="">Select category…</option>
+                      {cats.map(cat => <option key={cat} value={cat}>{cat}</option>)}
+                    </select>
+                    <p className="text-[10px] text-muted-foreground opacity-50">{cats.length} categories · one-hot encoded</p>
+                  </div>
+                )
+              }
+              // Label-encoded / regular categorical
               const opts = catOptions[f] ?? []
               const imp = imputationValues[f]
               return (

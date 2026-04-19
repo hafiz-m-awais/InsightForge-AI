@@ -79,6 +79,7 @@ def run_feature_engineering(
     # ── 4. Encoding ────────────────────────────────────────────────────────────
     encoded_cols: list[str] = []
     onehot_originals: list[str] = []
+    onehot_groups: dict[str, list[str]] = {}  # {original_col: [ohe_col_names]}
     fe_label_encoders: dict[str, LabelEncoder] = {}  # saved for inference pipeline
 
     for col, method in encoding_map.items():
@@ -95,6 +96,7 @@ def run_feature_engineering(
             df = pd.concat([df, dummies], axis=1)
             new_features.extend(dummies.columns.tolist())
             onehot_originals.append(col)
+            onehot_groups[col] = dummies.columns.tolist()  # store group for prediction UI
             encoded_cols.append(col)
             actions.append(f"One-hot encoded '{col}' → {len(dummies.columns)} columns")
 
@@ -146,7 +148,7 @@ def run_feature_engineering(
         "label_encoders": fe_label_encoders,      # {col: LabelEncoder}
         "scaler": fe_scaler,                       # fitted scaler or None
         "scaler_cols": fe_scaler_cols,             # columns the scaler was fitted on
-        "onehot_dummies": {},                      # placeholder for future OHE support
+        "onehot_dummies": onehot_groups,            # {original_col: [ohe_col_names]} for prediction UI
         "scaling_method": scaling,
         "raw_feature_stats": raw_feature_stats,   # pre-scaling stats for UI hints
     }
