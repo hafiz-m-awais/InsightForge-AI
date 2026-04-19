@@ -77,7 +77,7 @@ Status legend: ✅ Done · 🔄 In progress · ⬜ Planned
 | # | Feature | Priority |
 |---|---------|----------|
 | 1 | ~~Pipeline state persistence~~ | ✅ Done |
-| 2 | Batch predictions UI (upload CSV, download results) | High |
+| 2 | ~~Batch predictions UI (upload CSV, download results)~~ | ✅ Done |
 | 3 | Auto-run pipeline (single "Run All" button) | Medium |
 | 4 | Pipeline export as standalone Python script | Medium |
 | 5 | Automated LLM insights at each step | Medium |
