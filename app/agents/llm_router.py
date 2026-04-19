@@ -56,7 +56,7 @@ class LLMRouter:
                     
         elif provider == LLMProvider.GROQ:
             keys = [k.strip() for k in os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API_KEY", "")).split(",") if k.strip()]
-            model_strs = [m.strip() for m in os.environ.get("GROQ_MODELS", "llama3-70b-8192").split(",") if m.strip()]
+            model_strs = [m.strip() for m in os.environ.get("GROQ_MODELS", "llama3-70b-versatile").split(",") if m.strip()]
             if model_name: model_strs = [model_name]
             
             for key in keys:
