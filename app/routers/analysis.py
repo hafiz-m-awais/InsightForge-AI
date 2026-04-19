@@ -348,3 +348,183 @@ async def leakage_detection(request: LeakageDetectionRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Step Insights — LLM analysis at any pipeline step
+# ─────────────────────────────────────────────────────────────────────────────
+
+class StepInsightsRequest(BaseModel):
+    step: str                        # e.g. "profile", "eda", "cleaning", "feature_engineering", "training", "evaluation"
+    context: dict                    # step-specific summary data (see frontend)
+    target_col: str = ""
+    task_type: str = ""              # "classification" | "regression"
+    provider: str = "openrouter"
+
+
+STEP_PROMPTS: dict[str, str] = {
+    "profile": """You are a senior data scientist reviewing an automated data profile report.
+Provide concise, actionable insights about the dataset's quality and readiness for ML.
+
+Focus on:
+- Most critical data quality issues (missing values, duplicates, constant columns)
+- Which columns are likely problematic and why
+- Immediate next steps before modelling
+- Any red flags that could cause model failure
+
+Return JSON with this exact structure:
+{{
+  "headline": "One-sentence summary of dataset health",
+  "key_findings": ["finding 1", "finding 2", "finding 3"],
+  "warnings": ["warning if any — empty list if none"],
+  "next_steps": ["step 1", "step 2"],
+  "confidence": "high|medium|low"
+}}""",
+
+    "eda": """You are a senior data scientist reviewing EDA results.
+Provide insights about feature distributions, correlations, and modelling implications.
+
+Focus on:
+- Most predictive features based on correlation/distribution with target
+- Skewed or problematic distributions that need transformation
+- Class imbalance or target distribution concerns
+- Multicollinearity risks
+
+Return JSON with this exact structure:
+{{
+  "headline": "One-sentence summary of EDA findings",
+  "key_findings": ["finding 1", "finding 2", "finding 3"],
+  "warnings": ["warning if any — empty list if none"],
+  "next_steps": ["step 1", "step 2"],
+  "confidence": "high|medium|low"
+}}""",
+
+    "cleaning": """You are a senior data scientist reviewing a data cleaning report.
+Provide insights about the cleaning decisions and their impact on the dataset.
+
+Focus on:
+- Were the cleaning strategies appropriate?
+- How many rows/values were affected — is the dataset still representative?
+- Any cleaning decisions that might introduce bias
+- What to watch for in feature engineering
+
+Return JSON with this exact structure:
+{{
+  "headline": "One-sentence summary of cleaning impact",
+  "key_findings": ["finding 1", "finding 2", "finding 3"],
+  "warnings": ["warning if any — empty list if none"],
+  "next_steps": ["step 1", "step 2"],
+  "confidence": "high|medium|low"
+}}""",
+
+    "feature_engineering": """You are a senior data scientist reviewing feature engineering results.
+Provide insights about the transformations applied and their expected impact on model performance.
+
+Focus on:
+- Quality and appropriateness of encoding choices
+- Whether scaling is appropriate for the chosen models
+- New features that look most promising
+- Any transformations that might cause issues (e.g. information leakage from OHE on high-cardinality columns)
+
+Return JSON with this exact structure:
+{{
+  "headline": "One-sentence summary of feature engineering quality",
+  "key_findings": ["finding 1", "finding 2", "finding 3"],
+  "warnings": ["warning if any — empty list if none"],
+  "next_steps": ["step 1", "step 2"],
+  "confidence": "high|medium|low"
+}}""",
+
+    "training": """You are a senior data scientist reviewing model training results.
+Provide insights about model performance and selection recommendations.
+
+Focus on:
+- Which models performed best and why they are suitable for this problem
+- Gap between CV scores and what to expect on test data
+- Signs of overfitting or underfitting
+- Which model to prioritise for hyperparameter tuning
+
+Return JSON with this exact structure:
+{{
+  "headline": "One-sentence summary of training results",
+  "key_findings": ["finding 1", "finding 2", "finding 3"],
+  "warnings": ["warning if any — empty list if none"],
+  "next_steps": ["step 1", "step 2"],
+  "confidence": "high|medium|low"
+}}""",
+
+    "evaluation": """You are a senior data scientist reviewing final model evaluation results.
+Provide insights about production readiness and model selection.
+
+Focus on:
+- Is the best model actually production-ready? What are the risks?
+- Precision vs recall trade-off (for classification) or bias/variance (for regression)
+- Feature importance: any surprising or concerning patterns?
+- Recommendation: deploy as-is, tune more, or collect more data?
+
+Return JSON with this exact structure:
+{{
+  "headline": "One-sentence verdict on model readiness",
+  "key_findings": ["finding 1", "finding 2", "finding 3"],
+  "warnings": ["warning if any — empty list if none"],
+  "next_steps": ["step 1", "step 2"],
+  "confidence": "high|medium|low"
+}}""",
+}
+
+
+@router.post("/step-insights")
+async def step_insights(request: StepInsightsRequest):
+    """
+    Generate LLM-powered insights for a completed pipeline step.
+    Returns structured analysis tailored to each step's result data.
+    """
+    import json as _json
+    from app.agents.llm_router import get_llm
+    from langchain_core.messages import SystemMessage, HumanMessage
+
+    step = request.step.lower()
+    if step not in STEP_PROMPTS:
+        raise HTTPException(status_code=422, detail=f"Unknown step '{step}'. Valid: {list(STEP_PROMPTS.keys())}")
+
+    system_prompt = STEP_PROMPTS[step]
+
+    context_parts = []
+    if request.target_col:
+        context_parts.append(f"Target column: {request.target_col}")
+    if request.task_type:
+        context_parts.append(f"Task type: {request.task_type}")
+    context_parts.append("Step result data:")
+    context_parts.append(_json.dumps(request.context, indent=2, default=str)[:6000])  # cap to avoid token overflow
+
+    human_message = "\n".join(context_parts)
+
+    try:
+        llm = get_llm(provider=request.provider)
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_message),
+        ])
+        raw = response.content.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        result = _json.loads(raw.strip())
+        # Ensure all expected keys are present
+        result.setdefault("headline", "Analysis complete.")
+        result.setdefault("key_findings", [])
+        result.setdefault("warnings", [])
+        result.setdefault("next_steps", [])
+        result.setdefault("confidence", "medium")
+    except Exception as exc:
+        result = {
+            "headline": "LLM analysis unavailable.",
+            "key_findings": ["Automated insight generation failed. Review the results manually."],
+            "warnings": [str(exc)],
+            "next_steps": ["Continue to the next step."],
+            "confidence": "low",
+        }
+
+    return result
+

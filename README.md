@@ -11,7 +11,7 @@ license: mit
 
 <div align="center">
 
-# InsightForge AI
+#  InsightForge AI
 
 ### Autonomous, End-to-End Data Science — Powered by LLM Agents
 

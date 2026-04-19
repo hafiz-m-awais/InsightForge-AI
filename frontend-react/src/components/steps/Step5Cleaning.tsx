@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { usePipelineStore, type MissingStrategy, type OutlierTreatment, type EDAResult, type CleaningResult } from '@/store/pipelineStore'
 import { runCleaning } from '@/api/client'
+import { StepInsights } from '@/components/StepInsights'
 import { cn } from '@/lib/utils'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -1051,6 +1052,18 @@ export function Step5Cleaning() {
       {/* ── Footer CTA ── */}
       {cleaningResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
+          <StepInsights
+            step="data-cleaning"
+            context={{
+              rows_before: (cleaningResult as CleaningResultType).rows_before,
+              rows_after: (cleaningResult as CleaningResultType).rows_after,
+              rows_removed: (cleaningResult as CleaningResultType).rows_removed,
+              cols_before: (cleaningResult as CleaningResultType).cols_before,
+              cols_after: (cleaningResult as CleaningResultType).cols_after,
+              actions_taken: (cleaningResult as CleaningResultType).actions_taken,
+            }}
+            className="mb-3"
+          />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             {(cleaningResult as CleaningResultType).rows_after.toLocaleString()} rows · {(cleaningResult as CleaningResultType).cols_after} columns ready for feature engineering

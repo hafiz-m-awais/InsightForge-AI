@@ -388,6 +388,35 @@ export async function exportModelComparison(comparisonData: any) {
   })
 }
 
+// ─── Step Insights — LLM analysis at each pipeline step ──────────────────────
+
+export interface StepInsightsResult {
+  headline: string
+  key_findings: string[]
+  warnings: string[]
+  next_steps: string[]
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export async function getStepInsights(params: {
+  step: string
+  context: Record<string, unknown>
+  targetCol?: string
+  taskType?: string
+  provider?: string
+}): Promise<StepInsightsResult> {
+  return request<StepInsightsResult>('/step-insights', {
+    method: 'POST',
+    body: JSON.stringify({
+      step: params.step,
+      context: params.context,
+      target_col: params.targetCol ?? '',
+      task_type: params.taskType ?? '',
+      provider: params.provider ?? 'openrouter',
+    }),
+  })
+}
+
 // ─── Step 13 — Prediction Playground ─────────────────────────────────────────
 
 export async function makePrediction(

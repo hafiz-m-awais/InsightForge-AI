@@ -7,6 +7,7 @@ import {
   Table2, Target, GitBranch, Info,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { StepInsights } from '@/components/StepInsights'
 import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 import {
@@ -1035,6 +1036,20 @@ export function Step4EDA() {
       {/* Sticky footer CTA */}
       {typed && (
         <div className="flex-none flex items-center justify-between px-5 py-2 border-t border-border bg-card shrink-0">
+          <StepInsights
+            step="exploratory-data-analysis"
+            context={{
+              target_col: targetCol,
+              task_type: taskType,
+              health_score: (edaResult as EDAResult)?.data_health_score,
+              outlier_count: (edaResult as EDAResult)?.outlier_summary?.total_outliers,
+              leakage_flags_count: (edaResult as EDAResult)?.leakage_flags?.length,
+              correlation_with_target_top5: Object.fromEntries(
+                Object.entries((edaResult as EDAResult)?.correlation_with_target ?? {}).slice(0, 5)
+              ),
+            }}
+            className="mb-3"
+          />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             {(() => {

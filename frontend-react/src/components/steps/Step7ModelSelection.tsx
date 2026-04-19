@@ -5,6 +5,7 @@ import {
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import { runModelTraining } from '@/api/client'
+import { StepInsights } from '@/components/StepInsights'
 import { cn } from '@/lib/utils'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -486,6 +487,15 @@ export function Step7ModelSelection() {
 
       {modelSelectionResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
+          <StepInsights
+            step="model-selection"
+            context={{
+              selected_models: modelSelectionResult.selected_models,
+              best_model: modelSelectionResult.training_results.best_model,
+              models_trained: modelSelectionResult.training_results.models_trained,
+            }}
+            className="mb-3"
+          />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             {modelSelectionResult.selected_models.length} models trained • Best: {modelSelectionResult.training_results.best_model}

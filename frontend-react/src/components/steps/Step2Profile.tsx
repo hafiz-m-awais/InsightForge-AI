@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { profileDataset } from '@/api/client'
+import { StepInsights } from '@/components/StepInsights'
+import type { StepInsightsResult } from '@/components/StepInsights'
 import { usePipelineStore } from '@/store/pipelineStore'
 import {
   Database,
@@ -14,6 +16,8 @@ import ReactMarkdown from 'react-markdown'
 import rehypeSanitize from 'rehype-sanitize'
 
 export function Step2Profile() {
+  const [insightsCache, setInsightsCache] = useState<StepInsightsResult | null>(null)
+
   const { uploadResult, profileResult, setProfileResult, completeStep, provider, addLog } =
     usePipelineStore()
   const [loading, setLoading] = useState(false)
@@ -199,6 +203,25 @@ export function Step2Profile() {
               </ul>
             </div>
           )}
+
+          {/* AI Insights */}
+          <StepInsights
+            step="profile"
+            context={{
+              shape: profileResult.shape,
+              missing_pct_avg: Object.values(profileResult.missing).reduce((s, v) => s + v.pct, 0) / Math.max(profileResult.shape[1], 1),
+              missing_cols: Object.entries(profileResult.missing).filter(([, v]) => v.pct > 0).map(([k, v]) => ({ col: k, pct: v.pct })),
+              duplicates: profileResult.duplicates,
+              constant_columns: profileResult.constant_columns,
+              dtypes: profileResult.dtypes,
+              quality_score: profileResult.quality_score,
+              recommendations: profileResult.recommendations,
+            }}
+            provider={provider}
+            cached={insightsCache}
+            onResult={setInsightsCache}
+            className="mt-2"
+          />
 
           {/* CTA */}
           <div className="flex items-center justify-between pt-2 border-t border-border">
