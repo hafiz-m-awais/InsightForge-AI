@@ -8,7 +8,7 @@
  * Usage:
  *   <ShapChart modelPath={selectedModel.path} features={currentInputs} />
  */
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { BarChart2, RefreshCw, AlertTriangle, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -35,7 +35,7 @@ const DEFAULT_VISIBLE = 10
 
 interface ShapChartProps {
   modelPath: string
-  features: Record<string, string>
+  features: Record<string, string | number>
 }
 
 export function ShapChart({ modelPath, features }: ShapChartProps) {
@@ -44,6 +44,10 @@ export function ShapChart({ modelPath, features }: ShapChartProps) {
   const [error, setError] = useState<string | null>(null)
   const [open, setOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
+
+  // Reset whenever the model or input values change (new prediction run)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { setData(null); setOpen(false); setError(null) }, [modelPath, JSON.stringify(features)])
 
   const explain = async () => {
     // Toggle off if already loaded

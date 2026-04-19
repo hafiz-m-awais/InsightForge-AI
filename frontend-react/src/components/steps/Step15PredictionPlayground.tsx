@@ -133,7 +133,7 @@ function SmartFeatureForm({
   inspection, onResult, modelPath, exampleRow,
 }: {
   inspection: ModelInspection
-  onResult: (result: PredictionResult, inputs: Record<string, string>) => void
+  onResult: (result: PredictionResult, inputs: Record<string, string>, expandedPayload: Record<string, string | number>) => void
   modelPath: string
   exampleRow?: Record<string, string>
 }) {
@@ -257,7 +257,7 @@ function SmartFeatureForm({
         }
       }
       const data = await makePrediction(modelPath, payload)
-      onResult(data, inputs)
+      onResult(data, inputs, payload)
     } catch (e) { setError(e instanceof Error ? e.message : 'Prediction failed.') }
     finally { setLoading(false) }
   }
@@ -441,11 +441,11 @@ function ConfidenceArc({ value }: { value: number }) {
 function ResultPanel({
   result,
   modelPath,
-  features,
+  expandedFeatures,
 }: {
   result: PredictionResult
   modelPath: string
-  features: Record<string, string>
+  expandedFeatures: Record<string, string | number>
 }) {
   const [showTransforms, setShowTransforms] = useState(false)
 
@@ -545,7 +545,7 @@ function ResultPanel({
       )}
 
       {/* SHAP per-feature explanation */}
-      <ShapChart modelPath={modelPath} features={features} />
+      <ShapChart modelPath={modelPath} features={expandedFeatures} />
     </div>
   )
 }
@@ -869,7 +869,7 @@ export function Step15PredictionPlayground() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [result, setResult] = useState<PredictionResult | null>(null)
-  const [lastInputs, setLastInputs] = useState<Record<string, string>>({})
+  const [lastExpandedPayload, setLastExpandedPayload] = useState<Record<string, string | number>>({})
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     try {
       const stored = localStorage.getItem('playground_history')
@@ -975,9 +975,9 @@ export function Step15PredictionPlayground() {
     finally { setUploading(false); if (fileRef.current) fileRef.current.value = '' }
   }
 
-  const handleResult = (res: PredictionResult, inputs: Record<string, string>) => {
+  const handleResult = (res: PredictionResult, inputs: Record<string, string>, expandedPayload: Record<string, string | number>) => {
     setResult(res)
-    setLastInputs(inputs)
+    setLastExpandedPayload(expandedPayload)
     setHistory(prev => [{ id: ++historyIdRef.current, timestamp: nowStr(), inputs, prediction: res.prediction, confidence: res.confidence, type: res.type }, ...prev].slice(0, 10))
   }
 
@@ -1130,7 +1130,7 @@ export function Step15PredictionPlayground() {
                       <ResultPanel
                         result={result}
                         modelPath={selectedModel.path}
-                        features={lastInputs}
+                        expandedFeatures={lastExpandedPayload}
                       />
                     )}
 

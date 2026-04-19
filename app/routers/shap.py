@@ -138,8 +138,11 @@ def _run_shap(model, preprocessor, features: dict) -> dict:
 
     try:
         if is_linear:
+            # Use a zero-baseline as background for LinearExplainer so the
+            # expected_value reflects predictions from a neutral reference point.
+            background = np.zeros_like(X_row)
             explainer = shap.LinearExplainer(
-                model, shap.maskers.Independent(X_row, max_samples=1)
+                model, shap.maskers.Independent(background, max_samples=1)
             )
             shap_values = explainer.shap_values(X_row)
         elif is_tree:
