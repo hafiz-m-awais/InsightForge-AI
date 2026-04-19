@@ -84,12 +84,10 @@ def save_upload(file_obj: BinaryIO, filename: str, dest_dir: str = 'datasets') -
 def get_preview(df: pd.DataFrame, n: int = 5) -> list[dict]:
     """Return first n rows as a list of dicts safe for JSON serialization."""
     import numpy as np
+    import json
     preview = df.head(n).copy()
-    # Replace Inf/-Inf before NaN check (pd.notna(np.inf) is True, so Inf survives without this)
-    preview = preview.replace([np.inf, -np.inf], None)
-    # Replace remaining NaN with None
-    preview = preview.where(pd.notna(preview), other=None)
-    return preview.to_dict(orient='records')
+    # to_json converts NaN/Inf to null properly, then parse back to Python dicts
+    return json.loads(preview.to_json(orient='records', default_handler=str))
 
 
 def get_column_info(df: pd.DataFrame) -> list[dict]:

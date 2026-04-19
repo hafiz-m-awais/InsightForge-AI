@@ -208,11 +208,48 @@ __marimo__/
 
 # ── Project-specific ──────────────────────────────────────────────────────────
 
-# Node / frontend build
+# Python virtual environment
+venv/
+.venv/
+
+# Node / frontend
 node_modules/
 package-lock.json
-frontend-react/dist/
+frontend/node_modules/
 frontend-react/node_modules/
+frontend-react/dist/
+frontend/dist/
+
+# Trained models — keep metadata, ignore large binaries and uploaded files
+*.joblib
+models/uploaded/
+
+# Generated reports (HTML artefacts — regenerated at runtime)
+reports/
+
+# Uploaded / processed datasets (large data files)
+datasets/
+
+# Plot images generated at runtime
+plots/
+
+# Dashboard exports
+dashboards/
+
+# Scratch / temp files
+scratch_test.py
+*.tmp
+
+# Audit report generated at root
+insightforge_audit_report.html
+
+# Environment secrets
+.env
+!.env.example
+
+# OS artefacts
+.DS_Store
+Thumbs.db
 frontend-react/.vite/
 
 # ML artefacts – large binary files, not source code

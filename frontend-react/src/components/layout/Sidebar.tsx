@@ -22,6 +22,7 @@ import {
   Pencil,
   Check,
   FolderOpen,
+  Play,
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import type { StepStatus } from '@/store/pipelineStore'
@@ -91,6 +92,7 @@ const STEPS = [
   //{ id: 13, name: 'Explanation (XAI)', icon: Brain },
   { id: 13, name: 'Model Saving', icon: Save },
   { id: 14, name: 'Report Generation', icon: FileText },
+  { id: 15, name: 'Prediction Playground', icon: Play },
 ]
 
 function StatusIcon({ status }: { status: StepStatus }) {

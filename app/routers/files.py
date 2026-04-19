@@ -1,7 +1,7 @@
 """
 File management routes: download/list models and reports.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 import os
 import json
@@ -98,6 +98,39 @@ async def list_reports():
         })
     reports.sort(key=lambda x: x["modified_at"], reverse=True)
     return {"reports": reports, "total": len(reports)}
+
+
+@router.post("/upload-model")
+async def upload_model(file: UploadFile = File(...)):
+    """Upload a .joblib model file for use in the Prediction Playground."""
+    if not (file.filename or "").endswith(".joblib"):
+        raise HTTPException(status_code=400, detail="Only .joblib model files are supported.")
+
+    upload_dir = os.path.join("models", "uploaded")
+    os.makedirs(upload_dir, exist_ok=True)
+
+    # Sanitize: strip any directory components from the filename
+    safe_name = os.path.basename(file.filename or "uploaded_model.joblib")
+    dest_path = os.path.join(upload_dir, safe_name)
+
+    # Verify the resolved path stays within models/uploaded/
+    base_real = os.path.realpath(upload_dir)
+    dest_real = os.path.realpath(dest_path)
+    if not dest_real.startswith(base_real):
+        raise HTTPException(status_code=400, detail="Invalid filename.")
+
+    content = await file.read()
+    if len(content) == 0:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+
+    with open(dest_path, "wb") as f:
+        f.write(content)
+
+    return {
+        "filename": safe_name,
+        "filepath": dest_path,
+        "size_mb": round(len(content) / (1024 * 1024), 3),
+    }
 
 
 @router.get("/download-report")

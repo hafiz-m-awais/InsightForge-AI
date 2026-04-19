@@ -280,10 +280,22 @@ export async function runModelEvaluation(params: ModelEvaluationRequest): Promis
 }
 
 export async function generateEvaluationReport(params: EvaluationReportRequest): Promise<EvaluationReportResponse> {
-  const response = await fetch(`${BASE}/evaluation-report`, {
+  // Map frontend params to what the real endpoint expects
+  const evalResult = params.evaluation_result ?? {}
+  const evaluationResults = Array.isArray(evalResult.evaluations)
+    ? evalResult.evaluations
+    : (evalResult.evaluation_results ?? (Array.isArray(evalResult) ? evalResult : [evalResult]))
+  const comparisonResults = evalResult.comparison_results ?? {}
+  const datasetName = evalResult.dataset_name ?? evalResult.file_name ?? 'Dataset'
+
+  const response = await fetch(`${BASE}/evaluation-report-real`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: JSON.stringify({
+      evaluation_results: evaluationResults,
+      comparison_results: comparisonResults,
+      dataset_name: datasetName,
+    }),
   })
   
   if (!response.ok) {
@@ -291,7 +303,9 @@ export async function generateEvaluationReport(params: EvaluationReportRequest):
     throw new Error(err.detail || 'Report generation failed')
   }
   
-  return response.text()
+  const data = await response.json()
+  // Real endpoint returns JSON with report_html field
+  return data.report_html ?? data
 }
 
 // ─── Step 10 — Model Comparison ──────────────────────────────────────────────
