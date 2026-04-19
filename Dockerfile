@@ -1,5 +1,5 @@
 # ── Stage 1: Build React frontend ─────────────────────────────────────────────
-FROM node:20-slim AS frontend-build
+FROM node:20-bookworm-slim AS frontend-build
 
 WORKDIR /frontend-react
 COPY frontend-react/package*.json ./
@@ -9,7 +9,7 @@ COPY frontend-react/ ./
 RUN npm run build
 
 # ── Stage 2: Python / FastAPI backend ─────────────────────────────────────────
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
