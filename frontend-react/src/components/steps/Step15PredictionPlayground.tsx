@@ -1,11 +1,13 @@
 ﻿/**
  * Step 15 — Prediction Playground (production-grade)
  *
- * Four zones:
- *   A) Pipeline Strip  — shows preprocessing steps applied at training
+ * Zones:
+ *   A) Pipeline Strip   — preprocessing steps applied at training
  *   B) Smart Feature Form — categoricals as <select> with known classes
- *   C) Result Panel   — confidence arc, probability bars, transforms, warnings
- *   D) Prediction History — last-10 table + CSV export
+ *   C) Result Panel    — confidence arc, probability bars, SHAP chart, warnings
+ *   D) Prediction History — last-10 table, pin-to-compare, localStorage-backed
+ *   D2) Compare Panel  — side-by-side diff of two pinned predictions
+ *   E) Batch Prediction — CSV upload → streamed CSV download
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
@@ -13,9 +15,10 @@ import {
   Play, RefreshCw, AlertTriangle, Upload, Database, History,
   Cpu, Trash2, CheckCircle2, XCircle, Info,
   BarChart2, Sparkles, ChevronRight, Download, ChevronDown,
-  Shuffle, Lightbulb,
+  Shuffle, Lightbulb, FileUp,
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
+import { ShapChart } from './ShapChart'
 import { cn } from '@/lib/utils'
 import { makePrediction } from '@/api/client'
 
@@ -42,6 +45,7 @@ interface PreprocessorMeta {
   task_type?: string
   has_scaler?: boolean
   scaling_method?: string
+  feature_stats?: Record<string, { min: number; max: number; mean: number }>
 }
 
 interface ModelInspection {
@@ -137,6 +141,7 @@ function SmartFeatureForm({
   const featureTypes = inspection.feature_types ?? {}
   const catOptions = pp.categorical_options ?? {}
   const imputationValues = pp.imputation_values ?? {}
+  const featureStats = pp.feature_stats ?? {}
   // FE categorical columns are the ones that had real string values in the raw data
   const feCatCols = new Set<string>(pp.fe_categorical_columns ?? pp.categorical_columns ?? [])
   const hasScaler = pp.has_scaler && pp.scaling_method && pp.scaling_method !== 'none'
@@ -237,6 +242,7 @@ function SmartFeatureForm({
               const placeholder = imp !== undefined ? `e.g. ${typeof imp === 'number' ? imp.toFixed(2) : imp}` : 'Enter number…'
               const val = inputs[f] ?? ''
               const isValid = val === '' || !isNaN(Number(val))
+              const stats = featureStats[f]
               return (
                 <div key={f} className="space-y-1">
                   <div className="flex items-center gap-1.5">
@@ -247,6 +253,13 @@ function SmartFeatureForm({
                   <input type="number" step="any" placeholder={placeholder} value={val}
                     onChange={e => setInputs(p => ({ ...p, [f]: e.target.value }))}
                     className={cn('flex h-8 w-full rounded-md border bg-background px-3 py-1 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors', !isValid ? 'border-destructive' : 'border-input')} />
+                  {stats && (
+                    <p className="text-[10px] text-muted-foreground tabular-nums">
+                      min <span className="font-medium">{stats.min.toFixed(2)}</span>
+                      &nbsp;·&nbsp;mean <span className="font-medium">{stats.mean.toFixed(2)}</span>
+                      &nbsp;·&nbsp;max <span className="font-medium">{stats.max.toFixed(2)}</span>
+                    </p>
+                  )}
                 </div>
               )
             })}
@@ -336,12 +349,31 @@ function ConfidenceArc({ value }: { value: number }) {
 
 // ─── Zone C — Result Panel ────────────────────────────────────────────────────
 
-function ResultPanel({ result }: { result: PredictionResult }) {
+function ResultPanel({
+  result,
+  modelPath,
+  features,
+}: {
+  result: PredictionResult
+  modelPath: string
+  features: Record<string, string>
+}) {
   const [showTransforms, setShowTransforms] = useState(false)
+
   const sortedProbs = result.probabilities ? Object.entries(result.probabilities).sort(([, a], [, b]) => b - a) : []
+  const lowConfidence = result.confidence !== undefined && result.confidence < 0.6
 
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 overflow-hidden">
+      {/* Confidence threshold warning banner */}
+      {lowConfidence && (
+        <div className="flex items-center gap-2 px-5 py-2.5 bg-yellow-500/10 border-b border-yellow-500/30 text-yellow-700 dark:text-yellow-300">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span className="text-xs font-medium">
+            Low confidence ({(result.confidence! * 100).toFixed(1)}%) — prediction may be unreliable. Consider collecting more training data or reviewing input values.
+          </span>
+        </div>
+      )}
       <div className="px-5 pt-5 pb-4 border-b border-primary/10">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">
           {result.type === 'classification' ? 'Predicted Class' : 'Predicted Value'}
@@ -422,13 +454,26 @@ function ResultPanel({ result }: { result: PredictionResult }) {
           )}
         </div>
       )}
+
+      {/* SHAP per-feature explanation */}
+      <ShapChart modelPath={modelPath} features={features} />
     </div>
   )
 }
 
 // ─── Zone D — Prediction History ─────────────────────────────────────────────
 
-function PredictionHistory({ history, onClear }: { history: HistoryEntry[]; onClear: () => void }) {
+function PredictionHistory({
+  history,
+  onClear,
+  pinnedIds,
+  onTogglePin,
+}: {
+  history: HistoryEntry[]
+  onClear: () => void
+  pinnedIds: number[]
+  onTogglePin: (id: number) => void
+}) {
   if (history.length === 0) return null
   const inputKeys = Array.from(new Set(history.flatMap(h => Object.keys(h.inputs)))).slice(0, 4)
 
@@ -448,6 +493,11 @@ function PredictionHistory({ history, onClear }: { history: HistoryEntry[]; onCl
           <History className="w-4 h-4 text-muted-foreground" />
           <p className="text-sm font-semibold">Prediction History</p>
           <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">{history.length}</span>
+          {pinnedIds.length > 0 && (
+            <span className="text-[10px] bg-primary/10 text-primary px-1.5 py-0.5 rounded-full font-medium">
+              {pinnedIds.length === 1 ? 'Pin one more to compare' : '2 pinned — see compare panel below'}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={exportCSV} className="inline-flex items-center gap-1.5 h-7 px-3 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors">
@@ -466,33 +516,229 @@ function PredictionHistory({ history, onClear }: { history: HistoryEntry[]; onCl
                 <th className="text-left px-3 py-2 font-semibold text-muted-foreground">#</th>
                 <th className="text-left px-3 py-2 font-semibold text-muted-foreground whitespace-nowrap">Time</th>
                 {inputKeys.map(k => <th key={k} className="text-left px-3 py-2 font-semibold text-muted-foreground whitespace-nowrap"><span className="truncate block max-w-[90px]" title={k}>{k}</span></th>)}
-                {inputKeys.length < Object.keys(history[0]?.inputs ?? {}).length && <th className="text-left px-3 py-2 font-semibold text-muted-foreground">…</th>}
+                {inputKeys.length < Array.from(new Set(history.flatMap(h => Object.keys(h.inputs)))).length && <th className="text-left px-3 py-2 font-semibold text-muted-foreground">…</th>}
                 <th className="text-left px-3 py-2 font-semibold text-muted-foreground whitespace-nowrap">Prediction</th>
                 <th className="text-left px-3 py-2 font-semibold text-muted-foreground whitespace-nowrap">Confidence</th>
+                <th className="px-3 py-2 font-semibold text-muted-foreground whitespace-nowrap" title="Pin two rows to compare">Pin</th>
               </tr>
             </thead>
             <tbody>
-              {history.map((h, idx) => (
-                <tr key={h.id} className={cn('border-b border-border last:border-0', idx % 2 === 0 ? 'bg-background' : 'bg-muted/20')}>
-                  <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
-                  <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{h.timestamp}</td>
-                  {inputKeys.map(k => <td key={k} className="px-3 py-2"><span className="truncate block max-w-[90px]" title={String(h.inputs[k] ?? '')}>{h.inputs[k] ?? '—'}</span></td>)}
-                  {inputKeys.length < Object.keys(h.inputs).length && <td className="px-3 py-2 text-muted-foreground">…</td>}
-                  <td className="px-3 py-2 font-semibold font-mono text-primary">{String(h.prediction)}</td>
-                  <td className="px-3 py-2">
-                    {h.confidence !== undefined ? (
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                        style={{ backgroundColor: `${confidenceColor(h.confidence)}22`, color: confidenceColor(h.confidence) }}>
-                        {(h.confidence * 100).toFixed(1)}%
-                      </span>
-                    ) : '—'}
-                  </td>
-                </tr>
-              ))}
+              {history.map((h, idx) => {
+                const isPinned = pinnedIds.includes(h.id)
+                const canPin = isPinned || pinnedIds.length < 2
+                return (
+                  <tr key={h.id} className={cn('border-b border-border last:border-0', isPinned ? 'bg-primary/5 ring-1 ring-inset ring-primary/20' : idx % 2 === 0 ? 'bg-background' : 'bg-muted/20')}>
+                    <td className="px-3 py-2 text-muted-foreground">{idx + 1}</td>
+                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{h.timestamp}</td>
+                    {inputKeys.map(k => <td key={k} className="px-3 py-2"><span className="truncate block max-w-[90px]" title={String(h.inputs[k] ?? '')}>{h.inputs[k] ?? '—'}</span></td>)}
+                    {inputKeys.length < Array.from(new Set(history.flatMap(r => Object.keys(r.inputs)))).length && <td className="px-3 py-2 text-muted-foreground">…</td>}
+                    <td className="px-3 py-2 font-semibold font-mono text-primary">{String(h.prediction)}</td>
+                    <td className="px-3 py-2">
+                      {h.confidence !== undefined ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold"
+                          style={{ backgroundColor: `${confidenceColor(h.confidence)}22`, color: confidenceColor(h.confidence) }}>
+                          {(h.confidence * 100).toFixed(1)}%
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <button
+                        onClick={() => onTogglePin(h.id)}
+                        disabled={!canPin}
+                        title={isPinned ? 'Unpin' : pinnedIds.length === 2 ? 'Unpin one first' : 'Pin to compare'}
+                        className={cn('w-6 h-6 rounded flex items-center justify-center text-xs transition-colors', isPinned ? 'bg-primary text-primary-foreground' : canPin ? 'border border-border hover:bg-muted' : 'opacity-30 cursor-not-allowed')}
+                      >
+                        {isPinned ? '★' : '☆'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Compare Panel ────────────────────────────────────────────────────────────
+
+function ComparePanel({ a, b, onClose }: { a: HistoryEntry; b: HistoryEntry; onClose: () => void }) {
+  const allKeys = Array.from(new Set([...Object.keys(a.inputs), ...Object.keys(b.inputs)]))
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-primary/20">
+        <div className="flex items-center gap-2">
+          <BarChart2 className="w-4 h-4 text-primary" />
+          <p className="text-sm font-semibold">Side-by-Side Comparison</p>
+        </div>
+        <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground">
+          <XCircle className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Result summary */}
+      <div className="grid grid-cols-2 divide-x divide-primary/15 border-b border-primary/20">
+        {[a, b].map((h, i) => (
+          <div key={h.id} className="px-5 py-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Run {i === 0 ? 'A' : 'B'} · {h.timestamp}</p>
+            <p className="text-2xl font-bold font-mono text-primary">{String(h.prediction)}</p>
+            {h.confidence !== undefined && (
+              <p className="text-xs mt-1" style={{ color: confidenceColor(h.confidence) }}>
+                {(h.confidence * 100).toFixed(1)}% confidence
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Input diffs */}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border bg-muted/40">
+              <th className="text-left px-4 py-2 font-semibold text-muted-foreground w-1/3">Feature</th>
+              <th className="text-left px-4 py-2 font-semibold text-muted-foreground">Run A</th>
+              <th className="text-left px-4 py-2 font-semibold text-muted-foreground">Run B</th>
+              <th className="text-left px-4 py-2 font-semibold text-muted-foreground">Changed?</th>
+            </tr>
+          </thead>
+          <tbody>
+            {allKeys.map((k, idx) => {
+              const va = a.inputs[k] ?? '—'
+              const vb = b.inputs[k] ?? '—'
+              const changed = va !== vb
+              return (
+                <tr key={k} className={cn('border-b border-border last:border-0', changed ? 'bg-amber-500/5' : idx % 2 === 0 ? 'bg-background' : 'bg-muted/10')}>
+                  <td className="px-4 py-2 font-medium truncate max-w-[120px]" title={k}>{k}</td>
+                  <td className={cn('px-4 py-2 font-mono', changed ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-muted-foreground')}>{va}</td>
+                  <td className={cn('px-4 py-2 font-mono', changed ? 'text-amber-700 dark:text-amber-300 font-semibold' : 'text-muted-foreground')}>{vb}</td>
+                  <td className="px-4 py-2">
+                    {changed ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-semibold">differs</span>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground/50">same</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+// ─── Batch Predict Panel ──────────────────────────────────────────────────────
+
+function BatchPredict({ modelPath }: { modelPath: string }) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [file, setFile] = useState<File | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [rowCount, setRowCount] = useState<number | null>(null)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null
+    setFile(f)
+    setError(null)
+    setRowCount(null)
+    if (f) {
+      // Quick row count estimate from file text
+      const reader = new FileReader()
+      reader.onload = ev => {
+        const text = ev.target?.result as string
+        // Count newlines minus header row
+        const lines = (text.match(/\n/g) ?? []).length
+        setRowCount(Math.max(0, lines - 1))
+      }
+      reader.readAsText(f.slice(0, 512 * 1024)) // read first 512 KB to count lines
+    }
+  }
+
+  const handleRun = async () => {
+    if (!file) return
+    setLoading(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('model_path', modelPath)
+      form.append('file', file)
+      const res = await fetch('/api/predict-batch', { method: 'POST', body: form })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error((err as Record<string, string>).detail ?? `HTTP ${res.status}`)
+      }
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `batch_predictions_${file.name}`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Batch prediction failed.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-card px-5 py-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <FileUp className="w-4 h-4 text-primary" />
+        <p className="text-sm font-semibold">Batch Prediction</p>
+        <span className="text-[10px] bg-muted px-1.5 py-0.5 rounded-full text-muted-foreground">Upload CSV → Download results</span>
+      </div>
+
+      <div
+        onClick={() => !loading && fileRef.current?.click()}
+        className="group flex flex-col items-center justify-center border-2 border-dashed border-border hover:border-primary/50 rounded-xl py-6 cursor-pointer transition-colors"
+      >
+        <FileUp className="w-6 h-6 text-muted-foreground group-hover:text-primary mb-2 transition-colors" />
+        {file ? (
+          <p className="text-sm font-medium text-center">{file.name}</p>
+        ) : (
+          <p className="text-sm font-medium text-center">Click to select a CSV file</p>
+        )}
+        {rowCount !== null && (
+          <p className="text-xs text-muted-foreground mt-1">≈ {rowCount.toLocaleString()} rows detected</p>
+        )}
+        <p className="text-xs text-muted-foreground mt-1">Max 10 000 rows · 50 MB</p>
+        <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={handleFileChange} disabled={loading} />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleRun}
+          disabled={!file || loading}
+          className="inline-flex items-center gap-2 h-9 px-6 bg-primary text-primary-foreground text-sm font-semibold rounded-lg hover:bg-primary/90 active:scale-95 transition-all disabled:opacity-50"
+        >
+          <Download className="w-4 h-4" />
+          {loading ? 'Running…' : 'Run & Download CSV'}
+        </button>
+        {file && !loading && (
+          <button
+            onClick={() => { setFile(null); setRowCount(null); setError(null); if (fileRef.current) fileRef.current.value = '' }}
+            className="inline-flex items-center gap-1.5 h-9 px-3 text-xs font-medium rounded-md border border-border hover:bg-muted transition-colors text-muted-foreground"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Clear
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
+          <XCircle className="w-4 h-4 mt-0.5 shrink-0" />{error}
+        </div>
+      )}
+
+      <p className="text-[11px] text-muted-foreground">
+        The CSV must have columns matching the model's expected features. The downloaded file will contain
+        the original columns plus a <code className="font-mono bg-muted px-1 rounded">prediction</code> column (and confidence / per-class probabilities for classifiers).
+      </p>
     </div>
   )
 }
@@ -534,18 +780,20 @@ export function Step15PredictionPlayground() {
   const [uploading, setUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [result, setResult] = useState<PredictionResult | null>(null)
+  const [lastInputs, setLastInputs] = useState<Record<string, string>>({})
   const [history, setHistory] = useState<HistoryEntry[]>(() => {
     try {
-      const stored = sessionStorage.getItem('playground_history')
+      const stored = localStorage.getItem('playground_history')
       return stored ? (JSON.parse(stored) as HistoryEntry[]) : []
     } catch { return [] }
   })
+  const [pinnedIds, setPinnedIds] = useState<number[]>([])
   const historyIdRef = useRef(history.reduce((max, h) => Math.max(max, h.id), 0))
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Keep sessionStorage in sync with history state
+  // Keep localStorage in sync with history state (persists across browser sessions)
   useEffect(() => {
-    try { sessionStorage.setItem('playground_history', JSON.stringify(history)) } catch { /* quota exceeded — silently ignore */ }
+    try { localStorage.setItem('playground_history', JSON.stringify(history)) } catch { /* quota exceeded — silently ignore */ }
   }, [history])
 
   const exampleRow = useMemo<Record<string, string> | undefined>(() => {
@@ -640,6 +888,7 @@ export function Step15PredictionPlayground() {
 
   const handleResult = (res: PredictionResult, inputs: Record<string, string>) => {
     setResult(res)
+    setLastInputs(inputs)
     setHistory(prev => [{ id: ++historyIdRef.current, timestamp: nowStr(), inputs, prediction: res.prediction, confidence: res.confidence, type: res.type }, ...prev].slice(0, 10))
   }
 
@@ -788,10 +1037,31 @@ export function Step15PredictionPlayground() {
                     </div>
 
                     {/* Zone C — Result Panel */}
-                    {result && <ResultPanel result={result} />}
+                    {result && selectedModel && (
+                      <ResultPanel
+                        result={result}
+                        modelPath={selectedModel.path}
+                        features={lastInputs}
+                      />
+                    )}
 
                     {/* Zone D — Prediction History */}
-                    <PredictionHistory history={history} onClear={() => { setHistory([]); try { sessionStorage.removeItem('playground_history') } catch { /* ignore */ } }} />
+                    <PredictionHistory
+                      history={history}
+                      onClear={() => { setHistory([]); setPinnedIds([]); try { localStorage.removeItem('playground_history') } catch { /* ignore */ } }}
+                      pinnedIds={pinnedIds}
+                      onTogglePin={(id) => setPinnedIds(prev => prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id])}
+                    />
+
+                    {/* Zone D2 — Compare Panel */}
+                    {pinnedIds.length === 2 && (() => {
+                      const a = history.find(h => h.id === pinnedIds[0])
+                      const b = history.find(h => h.id === pinnedIds[1])
+                      return a && b ? <ComparePanel a={a} b={b} onClose={() => setPinnedIds([])} /> : null
+                    })()}
+
+                    {/* Zone E — Batch Prediction */}
+                    <BatchPredict modelPath={selectedModel.path} />
                   </>
                 )}
               </div>

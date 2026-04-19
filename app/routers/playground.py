@@ -1,12 +1,14 @@
 """
 Interactive Prediction Playground routes.
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
 from functools import lru_cache
 from pydantic import BaseModel, field_validator
 from pathlib import Path
 from typing import Union
 import asyncio
+import io
 import logging
 import joblib
 import numpy as np
@@ -372,6 +374,7 @@ async def inspect_model(request: InspectRequest):
                 "task_type": pp.get("task_type", "unknown"),
                 "has_scaler": fe_transforms.get("scaler") is not None,
                 "scaling_method": fe_transforms.get("scaling_method", "none"),
+                "feature_stats": pp.get("feature_stats", {}),
             }
         except Exception as exc:
             logger.warning("Could not parse preprocessor for inspect: %s", exc)
@@ -388,3 +391,97 @@ async def inspect_model(request: InspectRequest):
         "model_type": type(model).__name__,
         "preprocessor": preprocessor_meta,
     }
+
+
+_BATCH_MAX_ROWS = 10_000
+_BATCH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
+
+@router.post("/predict-batch")
+async def predict_batch(
+    model_path: str = Form(...),
+    file: UploadFile = File(...),
+):
+    """Accept a CSV file and a model path; return a CSV with a prediction column appended.
+
+    Row limit: 10 000 rows.  File size limit: 50 MB.
+    """
+    # ── Validate model path ───────────────────────────────────────────────────
+    try:
+        mp = _safe_model_path(model_path)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Access denied: invalid model path.")
+    if not mp.exists():
+        raise HTTPException(status_code=404, detail="Model file not found.")
+
+    # ── Validate uploaded file ────────────────────────────────────────────────
+    if not (file.filename or "").lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only .csv files are accepted.")
+
+    raw = await file.read()
+    if len(raw) > _BATCH_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=f"File too large (max {_BATCH_MAX_BYTES // 1024 // 1024} MB).")
+
+    try:
+        df = pd.read_csv(io.BytesIO(raw))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not parse CSV: {exc}")
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="CSV file is empty.")
+    if len(df) > _BATCH_MAX_ROWS:
+        raise HTTPException(status_code=400, detail=f"Too many rows (max {_BATCH_MAX_ROWS:,}).")
+
+    # ── Load model & preprocessor ─────────────────────────────────────────────
+    try:
+        model = _load_artifact(mp)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load model: {exc}")
+
+    preprocessor_path = mp.with_name(mp.stem + "_preprocessor.joblib")
+    preprocessor: dict | None = None
+    if preprocessor_path.exists():
+        try:
+            preprocessor = _load_artifact(preprocessor_path)
+        except Exception as exc:
+            logger.warning("Could not load preprocessor for batch: %s", exc)
+
+    # ── Run predictions row by row in a thread pool ───────────────────────────
+    def _run_batch(model, preprocessor, records: list[dict]) -> list[dict]:
+        out = []
+        for row in records:
+            try:
+                res = _run_prediction(model, preprocessor, row)
+                entry: dict = {"prediction": res["prediction"]}
+                if "confidence" in res:
+                    entry["confidence"] = round(res["confidence"] * 100, 2)
+                if res.get("probabilities"):
+                    for cls, prob in res["probabilities"].items():
+                        entry[f"prob_{cls}"] = round(prob * 100, 2)
+            except Exception as exc:
+                entry = {"prediction": f"ERROR: {exc}"}
+            out.append(entry)
+        return out
+
+    records = df.to_dict(orient="records")
+    loop = asyncio.get_event_loop()
+    try:
+        results = await asyncio.wait_for(
+            loop.run_in_executor(None, _run_batch, model, preprocessor, records),
+            timeout=120.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Batch prediction timed out (120 s).")
+
+    # ── Build output CSV ──────────────────────────────────────────────────────
+    result_df = pd.DataFrame(results)
+    out_df = pd.concat([df.reset_index(drop=True), result_df], axis=1)
+    buf = io.StringIO()
+    out_df.to_csv(buf, index=False)
+    buf.seek(0)
+
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=batch_predictions.csv"},
+    )
