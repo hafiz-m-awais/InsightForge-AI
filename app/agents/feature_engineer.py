@@ -107,12 +107,22 @@ def run_feature_engineering(
     scaled_cols: list[str] = []
     fe_scaler = None
     fe_scaler_cols: list[str] = []
+    raw_feature_stats: dict = {}
     if scaling != "none":
         num_cols = [
             c for c in df.select_dtypes(include="number").columns
             if c != target_col
         ]
         if num_cols:
+            # Capture real-world stats BEFORE scaling so the UI can show sensible hints
+            raw_feature_stats = {
+                col: {
+                    "min":  float(df[col].min()),
+                    "max":  float(df[col].max()),
+                    "mean": float(df[col].mean()),
+                }
+                for col in num_cols
+            }
             scalers = {
                 "standard": StandardScaler(),
                 "minmax": MinMaxScaler(),
@@ -138,6 +148,7 @@ def run_feature_engineering(
         "scaler_cols": fe_scaler_cols,             # columns the scaler was fitted on
         "onehot_dummies": {},                      # placeholder for future OHE support
         "scaling_method": scaling,
+        "raw_feature_stats": raw_feature_stats,   # pre-scaling stats for UI hints
     }
     fe_transforms_path = pathlib.Path(processed_path).with_name(
         pathlib.Path(processed_path).stem + "_fe_transforms.joblib"
@@ -147,10 +158,31 @@ def run_feature_engineering(
     features_after = [c for c in df.columns if c != target_col]
     new_features_list = [f for f in features_after if f not in features_before]
 
-    # Build preview with ORIGINAL (pre-encoded) values so the UI can show realistic examples
+    # Build preview: use original (pre-encoded) values for columns that existed in
+    # the raw dataset so the UI can show realistic human-readable examples.
+    # For new columns created by one-hot encoding (or other transforms), fill in
+    # the actual processed values (0/1 etc.) so the table never shows null.
     df_orig = pd.read_csv(dataset_path)
-    preview_orig_cols = [c for c in df_orig.columns if c != target_col and c in df.columns]
-    preview: List[Dict[str, Any]] = df_orig[preview_orig_cols].head(10).fillna("").astype(str).to_dict(orient="records")  # type: ignore[assignment]
+    orig_cols_in_result = [c for c in df_orig.columns if c in df.columns]
+    # Rows from the original dataset (human-readable values, includes target column)
+    orig_preview_rows: list[dict] = df_orig[orig_cols_in_result].head(10).fillna("").astype(str).to_dict(orient="records")
+    # Rows from the processed dataset (for columns that only exist after transforms, e.g. OHE)
+    new_only_cols = [c for c in df.columns if c != target_col and c not in df_orig.columns]
+    if new_only_cols:
+        new_only_df = df[new_only_cols].head(10).fillna(0)
+        # pandas get_dummies produces bool dtype in newer versions — convert to int (True→1, False→0)
+        bool_cols = new_only_df.select_dtypes(include="bool").columns
+        if len(bool_cols):
+            new_only_df = new_only_df.copy()
+            new_only_df[bool_cols] = new_only_df[bool_cols].astype(int)
+        new_preview_rows: list[dict] = new_only_df.astype(str).to_dict(orient="records")
+    else:
+        new_preview_rows = []
+    # Merge: original values first, then new-column values
+    preview: List[Dict[str, Any]] = [
+        {**orig_row, **(new_preview_rows[i] if i < len(new_preview_rows) else {})}
+        for i, orig_row in enumerate(orig_preview_rows)
+    ]
 
     return {
         "processed_path": processed_path,

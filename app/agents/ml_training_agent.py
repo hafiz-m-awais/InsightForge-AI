@@ -422,16 +422,20 @@ class MLTrainingAgent:
                     "label_encoder":   self.label_encoder,
                     "feature_order":   list(X_train.columns),
                     "fe_transforms":   fe_transforms,  # FE-level label encoders + scaler
-                    # Per-feature statistics for the training set (numeric columns only)
-                    "feature_stats": {
-                        col: {
-                            "min":  float(X_train[col].min()),
-                            "max":  float(X_train[col].max()),
-                            "mean": float(X_train[col].mean()),
+                    # Per-feature statistics — prefer raw (pre-scaling) stats stored by
+                    # feature_engineer.py so the UI can show real-world value hints.
+                    # Fall back to scaled training-set stats when raw stats are unavailable.
+                    "feature_stats": (
+                        fe_transforms.get("raw_feature_stats") or {
+                            col: {
+                                "min":  float(X_train[col].min()),
+                                "max":  float(X_train[col].max()),
+                                "mean": float(X_train[col].mean()),
+                            }
+                            for col in self.numeric_columns_seen
+                            if col in X_train.columns
                         }
-                        for col in self.numeric_columns_seen
-                        if col in X_train.columns
-                    },
+                    ),
                 }
                 joblib.dump(preprocessor_data, preprocessor_path)
                 results["preprocessor_paths"][model_name] = str(preprocessor_path)

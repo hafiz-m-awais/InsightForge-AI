@@ -169,9 +169,14 @@ function SmartFeatureForm({
         const opts = catOptions[f] ?? []
         return [f, opts[Math.floor(Math.random() * opts.length)] ?? '']
       }
+      const stats = featureStats[f]
+      if (stats) {
+        // Use real-world min/max range for a meaningful random value
+        const val = stats.min + Math.random() * (stats.max - stats.min)
+        return [f, String(val.toFixed(2))]
+      }
       const imp = imputationValues[f]
       const base = typeof imp === 'number' ? imp : 0
-      // When base is 0, use a ±1 jitter range so the result is not always 0
       const jitter = base !== 0 ? (Math.random() - 0.5) * Math.abs(base) * 0.3 : (Math.random() - 0.5) * 2
       return [f, String((base + jitter).toFixed(2))]
     })))
@@ -238,11 +243,17 @@ function SmartFeatureForm({
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {numericCols.map(f => {
+              const stats = featureStats[f]
+              // Prefer real-world mean from stats; only fall back to imputation value
+              // when stats are absent (old models without raw_feature_stats saved).
               const imp = imputationValues[f]
-              const placeholder = imp !== undefined ? `e.g. ${typeof imp === 'number' ? imp.toFixed(2) : imp}` : 'Enter number…'
+              const placeholder = stats
+                ? `e.g. ${stats.mean.toFixed(2)}`
+                : imp !== undefined
+                  ? 'Enter number…'
+                  : 'Enter number…'
               const val = inputs[f] ?? ''
               const isValid = val === '' || !isNaN(Number(val))
-              const stats = featureStats[f]
               return (
                 <div key={f} className="space-y-1">
                   <div className="flex items-center gap-1.5">
@@ -255,9 +266,12 @@ function SmartFeatureForm({
                     className={cn('flex h-8 w-full rounded-md border bg-background px-3 py-1 text-sm placeholder:text-muted-foreground/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring transition-colors', !isValid ? 'border-destructive' : 'border-input')} />
                   {stats && (
                     <p className="text-[10px] text-muted-foreground tabular-nums">
-                      min <span className="font-medium">{stats.min.toFixed(2)}</span>
-                      &nbsp;·&nbsp;mean <span className="font-medium">{stats.mean.toFixed(2)}</span>
-                      &nbsp;·&nbsp;max <span className="font-medium">{stats.max.toFixed(2)}</span>
+                      <span className="opacity-60">range&nbsp;</span>
+                      <span className="font-medium">{stats.min.toFixed(2)}</span>
+                      <span className="opacity-40">&nbsp;–&nbsp;</span>
+                      <span className="font-medium">{stats.max.toFixed(2)}</span>
+                      <span className="opacity-40">&nbsp;·&nbsp;avg&nbsp;</span>
+                      <span className="font-medium text-primary/70">{stats.mean.toFixed(2)}</span>
                     </p>
                   )}
                 </div>

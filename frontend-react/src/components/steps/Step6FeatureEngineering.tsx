@@ -44,11 +44,28 @@ function PreviewTable({ rows, cols }: { rows: Record<string, unknown>[]; cols: s
         <tbody>
           {visible.map((row, i) => (
             <tr key={i} className={i % 2 === 0 ? 'bg-background' : 'bg-muted/20'}>
-              {cols.slice(0, 14).map((c) => (
-                <td key={c} className="px-3 py-1.5 truncate max-w-[110px] text-muted-foreground">
-                  {row[c] == null ? <span className="text-rose-400/70">null</span> : String(row[c])}
-                </td>
-              ))}
+              {cols.slice(0, 14).map((c) => {
+                const val = row[c]
+                if (val == null || val === '') {
+                  return <td key={c} className="px-3 py-1.5 truncate max-w-[110px] text-muted-foreground/40">—</td>
+                }
+                const str = String(val)
+                // Render 0/1 binary values (OHE columns) as compact badges
+                const isBinary = str === '0' || str === '1' || str === 'False' || str === 'True'
+                if (isBinary) {
+                  const isOne = str === '1' || str === 'True'
+                  return (
+                    <td key={c} className="px-3 py-1.5 text-center">
+                      <span className={isOne
+                        ? 'inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/15 text-emerald-400'
+                        : 'inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold bg-muted/40 text-muted-foreground/50'}>
+                        {isOne ? '1' : '0'}
+                      </span>
+                    </td>
+                  )
+                }
+                return <td key={c} className="px-3 py-1.5 truncate max-w-[110px] text-muted-foreground">{str}</td>
+              })}
               {cols.length > 14 && <td />}
             </tr>
           ))}
