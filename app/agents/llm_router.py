@@ -1,12 +1,12 @@
 import os
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 from langchain_core.language_models.chat_models import BaseChatModel
 
 # Note: Using modern langchain integrations
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
+from langchain_groq import ChatGroq #type: ignore
 
 class LLMProvider(str, Enum):
     OPENROUTER = "openrouter"
@@ -114,6 +114,11 @@ class LLMRouter:
 # Global instance
 llm_manager = LLMRouter()
 
-def get_llm(provider: Optional[LLMProvider] = None, model_name: Optional[str] = None) -> BaseChatModel:
-    """Convenience function to get the requested LLM"""
+def get_llm(provider: Optional[Union[LLMProvider, str]] = None, model_name: Optional[str] = None) -> BaseChatModel:
+    """Convenience function to get the requested LLM. Accepts LLMProvider enum or plain string."""
+    if isinstance(provider, str):
+        try:
+            provider = LLMProvider(provider)
+        except ValueError:
+            provider = LLMProvider.OPENROUTER
     return llm_manager.get_model(provider, model_name)
