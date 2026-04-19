@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+venv/
+.venv/
+*.egg-info/
+
+# Frontend — node_modules are reinstalled inside Docker
+frontend-react/node_modules/
+frontend-react/dist/
+frontend-react/.vite/
+
+# Stale Vite build (rebuilt fresh inside Docker from frontend-react/)
+frontend/
+
+# Secrets — set as HF Space secrets instead
+.env
+.env.local
+.env.production
+
+# Runtime data (ephemeral in container)
+datasets/
+models/
+reports/
+
+# Version control
+.git/
+.gitignore
+
+# Docker config files (not needed inside image)
+docker-compose.yml
+.dockerignore
+
+# Dev/test scratch files
+scratch_test.py
+
+# Misc
+.DS_Store
+*.log

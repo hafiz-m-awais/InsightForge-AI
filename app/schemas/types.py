@@ -56,6 +56,7 @@ class BinningConfig(TypedDict):
 class FeatureEngineeringResult(TypedDict):
     """Result from feature engineering operation"""
     processed_path: str
+    fe_transforms_path: str
     cols_before: int
     cols_after: int
     features_before: List[str]

@@ -335,6 +335,10 @@ export async function makePrediction(
     type: 'classification' | 'regression'
     probabilities?: Record<string, number>
     confidence?: number
+    preprocessing_applied?: boolean
+    applied_transformations?: string[]
+    missing_features?: string[]
+    feature_order?: string[]
   }>('/predict', {
     method: 'POST',
     body: JSON.stringify({ model_path: modelPath, features }),

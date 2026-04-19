@@ -349,6 +349,7 @@ class MLTrainingAgent:
             "val_scores": {},
             "training_times": {},
             "model_paths": {},
+            "preprocessor_paths": {},
             "task_type": self.task_type
         }
         
@@ -390,7 +391,42 @@ class MLTrainingAgent:
                 model_path = self.models_dir / f"{model_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.joblib"
                 joblib.dump(model, model_path)
                 results["model_paths"][model_name] = str(model_path)
-                
+
+                # ── Save companion preprocessor ──────────────────────────────
+                # Capture the exact transforms applied during training so the
+                # prediction endpoint can reproduce the same pipeline at inference.
+                preprocessor_path = model_path.with_name(model_path.stem + "_preprocessor.joblib")
+
+                # Try to load FE-level transforms (label encoders, scaler) saved
+                # by feature_engineer.py next to the engineered CSV.
+                fe_transforms: dict = {}
+                _fe_path = getattr(self, "_fe_transforms_path", None)
+                if _fe_path:
+                    _fe_p = Path(_fe_path)
+                    if _fe_p.exists():
+                        try:
+                            fe_transforms = joblib.load(_fe_p)
+                            logger.info("Loaded FE transforms from %s", _fe_p)
+                        except Exception as _exc:
+                            logger.warning("Could not load FE transforms: %s", _exc)
+
+                preprocessor_data = {
+                    "numeric_columns_seen":    list(self.numeric_columns_seen),
+                    "categorical_columns_seen": list(self.categorical_columns_seen),
+                    "imputation_values": {
+                        k: (v.item() if hasattr(v, "item") else v)
+                        for k, v in self.imputation_values.items()
+                    },
+                    "categorical_encoders": dict(self.categorical_encoders),
+                    "task_type":       getattr(self, "task_type", "classification"),
+                    "label_encoder":   self.label_encoder,
+                    "feature_order":   list(X_train.columns),
+                    "fe_transforms":   fe_transforms,  # FE-level label encoders + scaler
+                }
+                joblib.dump(preprocessor_data, preprocessor_path)
+                results["preprocessor_paths"][model_name] = str(preprocessor_path)
+                logger.info("Saved preprocessor → %s", preprocessor_path)
+
                 # Track training time
                 training_time = (datetime.now() - start_time).total_seconds()
                 results["training_times"][model_name] = round(training_time, 2)

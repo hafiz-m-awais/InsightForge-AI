@@ -147,17 +147,17 @@ export function Step12ModelSaving() {
   const fetchModels = async () => {
     setLoading(true)
     setError(null)
-    addLog('ðŸ“š Loading saved models from disk...')
+    addLog('Loading saved models from disk...')
     try {
       const res = await fetch('/api/list-models')
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setDiskModels(data.models ?? [])
-      addLog(`âœ… Found ${data.total} model files`)
+      addLog(`✅ Found ${data.total} model files`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error'
       setError(msg)
-      addLog(`âŒ Failed to load models: ${msg}`)
+      addLog(`❌ Failed to load models: ${msg}`)
     } finally {
       setLoading(false)
     }
@@ -239,7 +239,7 @@ export function Step12ModelSaving() {
   const downloadSelected = () => {
     const targets = filteredModels.filter(m => selected.has(m.filename))
     if (targets.length === 0) return
-    addLog(`â¬‡ï¸ Downloading ${targets.length} model(s)...`)
+    addLog(`⬇️ Downloading ${targets.length} model(s)...`)
     targets.forEach((m, i) => {
       setTimeout(() => triggerDownload(m.filepath, m.filename), i * 300)
     })

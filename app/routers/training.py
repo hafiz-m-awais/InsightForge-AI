@@ -113,6 +113,14 @@ async def model_training(request: ModelTrainingRequest):
         test_size = 1.0 - request.train_size
         validation_size = 0.15
 
+        # Point the agent to the FE transforms saved alongside the engineered CSV
+        import pathlib as _pl
+        _fe_transforms_candidate = _pl.Path(str(dataset_path)).with_name(
+            _pl.Path(str(dataset_path)).stem + "_fe_transforms.joblib"
+        )
+        if _fe_transforms_candidate.exists():
+            ml_agent._fe_transforms_path = str(_fe_transforms_candidate)
+
         def prepare_data_wrapper():
             return ml_agent.prepare_data(
                 df=df,
@@ -169,6 +177,14 @@ async def hyperparameter_tuning(request: HyperparameterTuningRequest):
 
         loop = asyncio.get_running_loop()
         df = await loop.run_in_executor(_executor, pd.read_csv, dataset_path)
+
+        # Point the agent to FE transforms if present
+        import pathlib as _pl2
+        _fe_t = _pl2.Path(str(dataset_path)).with_name(
+            _pl2.Path(str(dataset_path)).stem + "_fe_transforms.joblib"
+        )
+        if _fe_t.exists():
+            ml_agent._fe_transforms_path = str(_fe_t)
 
         X_train, X_val, X_test, y_train, y_val, y_test = ml_agent.prepare_data(
             df, request.target_col, test_size=0.2, validation_size=0.15

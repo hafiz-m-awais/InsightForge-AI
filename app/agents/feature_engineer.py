@@ -1,3 +1,5 @@
+import pathlib
+import joblib
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, StandardScaler, MinMaxScaler, RobustScaler
@@ -77,6 +79,7 @@ def run_feature_engineering(
     # ── 4. Encoding ────────────────────────────────────────────────────────────
     encoded_cols: list[str] = []
     onehot_originals: list[str] = []
+    fe_label_encoders: dict[str, LabelEncoder] = {}  # saved for inference pipeline
 
     for col, method in encoding_map.items():
         if col not in df.columns or col == target_col or method == "skip":
@@ -84,6 +87,7 @@ def run_feature_engineering(
         if method == "label":
             le = LabelEncoder()
             df[col] = np.array(le.fit_transform(df[col].astype(str).fillna("__missing__")))
+            fe_label_encoders[col] = le
             encoded_cols.append(col)
             actions.append(f"Label-encoded '{col}'")
         elif method == "onehot":
@@ -101,6 +105,8 @@ def run_feature_engineering(
 
     # ── 5. Scaling ─────────────────────────────────────────────────────────────
     scaled_cols: list[str] = []
+    fe_scaler = None
+    fe_scaler_cols: list[str] = []
     if scaling != "none":
         num_cols = [
             c for c in df.select_dtypes(include="number").columns
@@ -112,8 +118,9 @@ def run_feature_engineering(
                 "minmax": MinMaxScaler(),
                 "robust": RobustScaler(),
             }
-            scaler = scalers.get(scaling, StandardScaler())
-            df[num_cols] = scaler.fit_transform(df[num_cols].fillna(0))
+            fe_scaler = scalers.get(scaling, StandardScaler())
+            df[num_cols] = fe_scaler.fit_transform(df[num_cols].fillna(0))
+            fe_scaler_cols = num_cols
             scaled_cols = num_cols
             actions.append(f"Scaled {len(num_cols)} numeric features with {scaling}")
 
@@ -124,15 +131,30 @@ def run_feature_engineering(
     processed_path = f"{base}_engineered.csv"
     df.to_csv(processed_path, index=False)
 
+    # Save FE transforms so the prediction pipeline can apply identical preprocessing
+    fe_transforms = {
+        "label_encoders": fe_label_encoders,      # {col: LabelEncoder}
+        "scaler": fe_scaler,                       # fitted scaler or None
+        "scaler_cols": fe_scaler_cols,             # columns the scaler was fitted on
+        "onehot_dummies": {},                      # placeholder for future OHE support
+        "scaling_method": scaling,
+    }
+    fe_transforms_path = pathlib.Path(processed_path).with_name(
+        pathlib.Path(processed_path).stem + "_fe_transforms.joblib"
+    )
+    joblib.dump(fe_transforms, fe_transforms_path)
+
     features_after = [c for c in df.columns if c != target_col]
     new_features_list = [f for f in features_after if f not in features_before]
 
-    # Build preview (first 10 rows as list of dicts)
-    preview_cols = [c for c in df.columns if c != target_col]
-    preview: List[Dict[str, Any]] = df[preview_cols].head(10).fillna("").astype(str).to_dict(orient="records")  # type: ignore[assignment]
+    # Build preview with ORIGINAL (pre-encoded) values so the UI can show realistic examples
+    df_orig = pd.read_csv(dataset_path)
+    preview_orig_cols = [c for c in df_orig.columns if c != target_col and c in df.columns]
+    preview: List[Dict[str, Any]] = df_orig[preview_orig_cols].head(10).fillna("").astype(str).to_dict(orient="records")  # type: ignore[assignment]
 
     return {
         "processed_path": processed_path,
+        "fe_transforms_path": str(fe_transforms_path),
         "cols_before": len(features_before),
         "cols_after": len(features_after),
         "features_before": features_before,
