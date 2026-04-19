@@ -546,7 +546,7 @@ export function Step9Evaluation() {
       {evaluationResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
           <StepInsights
-            step="model-evaluation"
+            step="evaluation"
             context={{
               best_performing_model: evaluationResult.best_performing_model,
               models_evaluated: evaluationResult.evaluations.map((e) => e.model_name),

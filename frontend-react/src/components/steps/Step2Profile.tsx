@@ -212,9 +212,8 @@ export function Step2Profile() {
               missing_pct_avg: Object.values(profileResult.missing).reduce((s, v) => s + v.pct, 0) / Math.max(profileResult.shape[1], 1),
               missing_cols: Object.entries(profileResult.missing).filter(([, v]) => v.pct > 0).map(([k, v]) => ({ col: k, pct: v.pct })),
               duplicates: profileResult.duplicates,
-              constant_columns: profileResult.constant_columns,
+              constant_cols: profileResult.constant_cols,
               dtypes: profileResult.dtypes,
-              quality_score: profileResult.quality_score,
               recommendations: profileResult.recommendations,
             }}
             provider={provider}

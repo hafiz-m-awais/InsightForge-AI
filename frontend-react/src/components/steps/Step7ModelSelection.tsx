@@ -488,7 +488,7 @@ export function Step7ModelSelection() {
       {modelSelectionResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
           <StepInsights
-            step="model-selection"
+            step="training"
             context={{
               selected_models: modelSelectionResult.selected_models,
               best_model: modelSelectionResult.training_results.best_model,

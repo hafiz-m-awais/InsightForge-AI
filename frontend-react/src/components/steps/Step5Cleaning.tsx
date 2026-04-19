@@ -1053,7 +1053,7 @@ export function Step5Cleaning() {
       {cleaningResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
           <StepInsights
-            step="data-cleaning"
+            step="cleaning"
             context={{
               rows_before: (cleaningResult as CleaningResultType).rows_before,
               rows_after: (cleaningResult as CleaningResultType).rows_after,

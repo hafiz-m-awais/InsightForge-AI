@@ -557,7 +557,7 @@ export function Step6FeatureEngineering() {
       {featureEngineeringResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
           <StepInsights
-            step="feature-engineering"
+            step="feature_engineering"
             context={{
               cols_before: featureEngineeringResult.cols_before,
               cols_after: featureEngineeringResult.cols_after,

@@ -1037,7 +1037,7 @@ export function Step4EDA() {
       {typed && (
         <div className="flex-none flex items-center justify-between px-5 py-2 border-t border-border bg-card shrink-0">
           <StepInsights
-            step="exploratory-data-analysis"
+            step="eda"
             context={{
               target_col: targetCol,
               task_type: taskType,
