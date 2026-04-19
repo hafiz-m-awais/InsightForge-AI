@@ -214,7 +214,6 @@ venv/
 
 # Node / frontend
 node_modules/
-package-lock.json
 frontend/node_modules/
 frontend-react/node_modules/
 frontend-react/dist/
