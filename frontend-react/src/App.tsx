@@ -1,6 +1,8 @@
 import { usePipelineStore } from '@/store/pipelineStore'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { LogBar } from '@/components/layout/LogBar'
+import { Topbar } from '@/components/layout/Topbar'
+import { Dashboard } from '@/components/steps/Dashboard'
 import { Step1Upload } from '@/components/steps/Step1Upload'
 import { Step2Profile } from '@/components/steps/Step2Profile'
 import { Step3Target } from '@/components/steps/Step3Target'
@@ -36,6 +38,7 @@ function ComingSoon({ step }: { step: number }) {
 
 function StepContent({ step }: { step: number }) {
   switch (step) {
+    case 0: return <Dashboard />
     case 1: return <Step1Upload />
     case 2: return <Step2Profile />
     case 3: return <Step3Target />  // Target Selection - Step 3
@@ -62,6 +65,7 @@ function App() {
     <div className="h-screen w-screen flex overflow-hidden bg-background text-foreground">
       <Sidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <Topbar />
         <main className="flex-1 overflow-y-auto">
           <StepContent step={currentStep} />
         </main>
