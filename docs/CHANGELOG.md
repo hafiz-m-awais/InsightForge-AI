@@ -6,7 +6,7 @@ All notable changes are documented here in reverse chronological order, grouped 
 
 ## Session: April 20, 2026 (bugfixes — SHAP & StepInsights)
 
-### `pending` — fix: SHAP broken for datasets with categorical features + StepInsights render bug
+### `b0895a3` — fix: SHAP broken for datasets with categorical features + StepInsights render bug
 **Files changed:** `app/routers/shap.py`, `frontend-react/src/components/StepInsights.tsx`
 
 **Bug 1 — SHAP fails on any dataset with categorical features (`shap.py`):**
