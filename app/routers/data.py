@@ -297,21 +297,35 @@ async def analyze_target(request: AnalyzeTargetRequest):
         # Normalise Python-style booleans/None
         raw = raw.replace(': True', ': true').replace(': False', ': false').replace(': None', ': null')
         result = _json.loads(raw)
-        # Server-side guard: remove any possible_problems with invalid task_type
+        # Server-side normalization: fix invalid task_types, drop problems with non-existent target columns
         _valid_task_types = {'classification', 'regression', 'timeseries'}
         if isinstance(result.get('possible_problems'), list):
-            result['possible_problems'] = [
-                p for p in result['possible_problems']
-                if isinstance(p, dict) and p.get('task_type', '').lower() in _valid_task_types
-            ]
-            # Normalise task_type to lowercase
+            cleaned = []
             for p in result['possible_problems']:
-                p['task_type'] = p['task_type'].lower()
-        # Normalise primary_suggestion task_type too
+                if not isinstance(p, dict):
+                    continue
+                rec_target = str(p.get('recommended_target', ''))
+                # Skip if recommended_target is not a real column in the dataset
+                if rec_target not in df.columns:
+                    continue
+                tt = str(p.get('task_type', '')).lower()
+                if tt not in _valid_task_types:
+                    # Infer task_type from the column's cardinality
+                    n_unique = int(df[rec_target].nunique(dropna=True))
+                    tt = 'classification' if n_unique <= 20 else 'regression'
+                p['task_type'] = tt
+                cleaned.append(p)
+            result['possible_problems'] = cleaned
+        # Normalise primary_suggestion task_type
         if isinstance(result.get('primary_suggestion'), dict):
-            pt = result['primary_suggestion'].get('task_type', '').lower()
+            rec = str(result['primary_suggestion'].get('target_col', ''))
+            pt = str(result['primary_suggestion'].get('task_type', '')).lower()
             if pt not in _valid_task_types:
-                pt = 'classification'
+                if rec in df.columns:
+                    n_unique = int(df[rec].nunique(dropna=True))
+                    pt = 'classification' if n_unique <= 20 else 'regression'
+                else:
+                    pt = 'classification'
             result['primary_suggestion']['task_type'] = pt
     except Exception as exc:
         # Fallback: simple heuristic suggestion

@@ -254,30 +254,13 @@ export function Step3Target() {
             <p className="text-sm text-foreground leading-relaxed">{analysisResult.analysis_summary}</p>
           </div>
 
-          {analysisResult.problem_statement_insight && (
+          {analysisResult.problem_statement_insight && problemStatement.trim() && (
             <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-4 space-y-1">
               <div className="flex items-center gap-2">
                 <Info className="w-4 h-4 text-blue-400" />
                 <span className="text-xs font-medium text-blue-400 uppercase tracking-wide">Based on your problem statement</span>
               </div>
               <p className="text-sm text-foreground">{analysisResult.problem_statement_insight}</p>
-            </div>
-          )}
-
-          {analysisResult.data_quality_flags?.length > 0 && (
-            <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-2">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-400" />
-                <span className="text-xs font-medium text-amber-400 uppercase tracking-wide">Data Quality Concerns</span>
-              </div>
-              <ul className="space-y-1">
-                {analysisResult.data_quality_flags.map((flag, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-amber-300">
-                    <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                    {flag}
-                  </li>
-                ))}
-              </ul>
             </div>
           )}
 
