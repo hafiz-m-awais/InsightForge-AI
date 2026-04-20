@@ -272,10 +272,10 @@ interface PipelineState {
   setUploadResult: (result: UploadResult) => void
   setProfileResult: (result: ProfileResult) => void
   setProblemStatement: (s: string) => void
-  setTargetCol: (col: string) => void
-  setTaskType: (type: TaskType) => void
+  setTargetCol: (col: string | null) => void
+  setTaskType: (type: TaskType | null) => void
   setColumnsToExclude: (cols: string[]) => void
-  setTargetValidation: (val: TargetValidation) => void
+  setTargetValidation: (val: TargetValidation | null) => void
   setEdaResult: (result: EDAResult) => void
   setCleaningPlan: (plan: CleaningPlan) => void
   setCleaningResult: (result: CleaningResult) => void

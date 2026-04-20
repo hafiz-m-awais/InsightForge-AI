@@ -123,10 +123,6 @@ export function Step3Target() {
       const result = await analyzeTarget(uploadResult.dataset_path, problemStatement, provider)
       setAnalysisResult(result)
       addLog('✓ AI analysis complete')
-      if (!targetCol && result.primary_suggestion.target_col) {
-        setTargetCol(result.primary_suggestion.target_col)
-        setTaskType(result.primary_suggestion.task_type as TaskType)
-      }
       if (result.columns_to_exclude_suggestion?.length) {
         const newExcludes = result.columns_to_exclude_suggestion.filter(
           (c) => !columnsToExclude.includes(c) && c !== result.primary_suggestion.target_col
@@ -176,13 +172,26 @@ export function Step3Target() {
   const applyProblem = (idx: number) => {
     const p = analysisResult?.possible_problems[idx]
     if (!p) return
-    setTargetCol(p.recommended_target)
-    setTaskType(p.task_type as TaskType)
+    // Toggle: clicking an already-applied problem deselects it
+    if (targetCol === p.recommended_target && taskType === p.task_type) {
+      setTargetCol(null)
+      setTaskType(null)
+      setTargetValidation(null)
+    } else {
+      setTargetCol(p.recommended_target)
+      setTaskType(p.task_type as TaskType)
+    }
   }
 
   const chartData = targetValidation
     ? Object.entries(targetValidation.target_distribution).map(([label, count]) => ({ label, count }))
     : []
+
+  // Filter out any data-quality items the LLM may have mistakenly put in possible_problems
+  const VALID_TASK_TYPES = ['classification', 'regression', 'timeseries']
+  const filteredProblems = analysisResult?.possible_problems.filter(
+    (p) => VALID_TASK_TYPES.includes(p.task_type)
+  ) ?? []
 
   const canContinue = targetCol && taskType && targetValidation?.is_valid
 
@@ -275,9 +284,9 @@ export function Step3Target() {
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-2">
               <TrendingUp className="w-3.5 h-3.5" />
-              Possible ML Problems ({analysisResult.possible_problems.length} detected)
+              Possible ML Problems ({filteredProblems.length} detected)
             </p>
-            {analysisResult.possible_problems.map((prob, idx) => (
+            {filteredProblems.map((prob, idx) => (
               <div
                 key={idx}
                 className={cn(

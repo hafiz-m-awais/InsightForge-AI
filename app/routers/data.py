@@ -240,7 +240,7 @@ async def analyze_target(request: AnalyzeTargetRequest):
     )
 
     system_prompt = (
-        "You are a senior data scientist. Critically analyze datasets and suggest ML prediction tasks. "
+        "You are a senior data scientist. Your job is to identify what ML prediction tasks can be solved with this dataset. "
         "Return a JSON object with EXACTLY this structure (no markdown, raw JSON only):\n"
         "{\n"
         "  \"analysis_summary\": \"2-3 sentence critical assessment of the dataset\",\n"
@@ -249,19 +249,26 @@ async def analyze_target(request: AnalyzeTargetRequest):
         "  \"problem_statement_insight\": \"\",\n"
         "  \"data_quality_flags\": [],\n"
         "  \"columns_to_exclude_suggestion\": []\n"
-        "}\n"
-        "CRITICAL RULES:\n"
-        "1. possible_problems must ONLY contain ML PREDICTION tasks (what the user can predict/forecast). "
-        "Each item describes a different column that could be a prediction target. "
-        "task_type must be one of: classification, regression, timeseries. "
-        "DO NOT list data quality issues (missing values, high cardinality, etc.) as possible_problems — those go in data_quality_flags.\n"
-        "2. recommended_target must be an exact column name from the dataset schema.\n"
-        "3. confidence must be one of: high, medium, low.\n"
-        "4. primary_suggestion must pick the most meaningful prediction target. "
-        "If a problem_statement is given, align primary_suggestion to it. "
-        "Otherwise pick the column most likely to be a prediction target (e.g. outcome/label/target/status columns, not ID or free-text columns).\n"
-        "5. data_quality_flags: list 2-5 specific data quality concerns (missing values, imbalance, leakage risk, high cardinality, etc.).\n"
-        "6. columns_to_exclude_suggestion: list columns that are IDs, URLs, free-text, or otherwise useless for ML."
+        "}\n\n"
+        "=== STRICT RULES — MUST FOLLOW ===\n"
+        "possible_problems = LIST OF PREDICTION TASKS ONLY.\n"
+        "Each item answers: 'What column could a user train an ML model to PREDICT?'\n"
+        "task_type MUST be exactly one of: classification, regression, timeseries — NO other values.\n\n"
+        "GOOD possible_problems examples:\n"
+        "  - title: 'Predict customer churn', recommended_target: 'churn', task_type: 'classification'\n"
+        "  - title: 'Predict house sale price', recommended_target: 'SalePrice', task_type: 'regression'\n"
+        "  - title: 'Predict passenger survival', recommended_target: 'Survived', task_type: 'classification'\n\n"
+        "BAD possible_problems examples (DO NOT include these — they are data quality issues, not prediction tasks):\n"
+        "  - title: 'Skewed distribution of numerical features' → WRONG, put in data_quality_flags\n"
+        "  - title: 'Potential multicollinearity' → WRONG, put in data_quality_flags\n"
+        "  - title: 'Imbalanced target variable' → WRONG, put in data_quality_flags\n"
+        "  - title: 'Missing values in Age column' → WRONG, put in data_quality_flags\n"
+        "  - title: 'High cardinality in Ticket column' → WRONG, put in data_quality_flags\n\n"
+        "data_quality_flags: list 2-5 data quality concerns (missing values, imbalance, skewness, multicollinearity, leakage risk, high cardinality).\n"
+        "confidence must be one of: high, medium, low.\n"
+        "recommended_target must be an exact column name from the schema.\n"
+        "primary_suggestion: pick the most meaningful prediction target. Align to the user's problem statement if given.\n"
+        "columns_to_exclude_suggestion: columns that are IDs, timestamps, URLs, or otherwise useless for ML."
     )
     human_prompt = (
         f"Dataset: {rows} rows × {cols} columns\n"
@@ -288,8 +295,24 @@ async def analyze_target(request: AnalyzeTargetRequest):
         if start != -1 and end != -1 and end > start:
             raw = raw[start : end + 1]
         # Normalise Python-style booleans/None
-        raw = raw.replace(": True", ": true").replace(": False", ": false").replace(": None", ": null")
+        raw = raw.replace(': True', ': true').replace(': False', ': false').replace(': None', ': null')
         result = _json.loads(raw)
+        # Server-side guard: remove any possible_problems with invalid task_type
+        _valid_task_types = {'classification', 'regression', 'timeseries'}
+        if isinstance(result.get('possible_problems'), list):
+            result['possible_problems'] = [
+                p for p in result['possible_problems']
+                if isinstance(p, dict) and p.get('task_type', '').lower() in _valid_task_types
+            ]
+            # Normalise task_type to lowercase
+            for p in result['possible_problems']:
+                p['task_type'] = p['task_type'].lower()
+        # Normalise primary_suggestion task_type too
+        if isinstance(result.get('primary_suggestion'), dict):
+            pt = result['primary_suggestion'].get('task_type', '').lower()
+            if pt not in _valid_task_types:
+                pt = 'classification'
+            result['primary_suggestion']['task_type'] = pt
     except Exception as exc:
         # Fallback: simple heuristic suggestion
         #numeric_cols = df.select_dtypes(include="number").columns.tolist()
