@@ -505,12 +505,21 @@ async def step_insights(request: StepInsightsRequest):
             SystemMessage(content=system_prompt),
             HumanMessage(content=human_message),
         ])
-        raw = response.content.strip()
+        raw = str(response.content).strip()
+        # Strip code fences
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        result = _json.loads(raw.strip())
+        raw = raw.strip()
+        # Extract the outermost {...} block — handles LLM preamble/postamble text
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            raw = raw[start : end + 1]
+        # Normalise common LLM quirks before JSON parsing
+        raw = raw.replace(": True", ": true").replace(": False", ": false").replace(": None", ": null")
+        result = _json.loads(raw)
         # Ensure all expected keys are present
         result.setdefault("headline", "Analysis complete.")
         result.setdefault("key_findings", [])
