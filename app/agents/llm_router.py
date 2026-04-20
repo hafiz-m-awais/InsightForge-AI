@@ -30,7 +30,8 @@ class LLMRouter:
         if provider == LLMProvider.OPENROUTER:
             keys = [k.strip() for k in os.environ.get("OPENROUTER_API_KEYS", os.environ.get("OPENROUTER_API_KEY", "")).split(",") if k.strip()]
             model_strs = [m.strip() for m in os.environ.get("OPENROUTER_MODELS", "anthropic/claude-3-haiku").split(",") if m.strip()]
-            if model_name: model_strs = [model_name]
+            if model_name:
+                model_strs = [model_name]
             
             for key in keys:
                 for mod in model_strs:
@@ -38,13 +39,18 @@ class LLMRouter:
                         base_url="https://openrouter.ai/api/v1",
                         api_key=key,  # type: ignore
                         model=mod,
-                        temperature=0.2
+                        temperature=0.2,
+                        default_headers={
+                            "HTTP-Referer": "https://insightforge.app",
+                            "X-Title": "InsightForge",
+                        }
                     ))
                     
         elif provider == LLMProvider.GEMINI:
             keys = [k.strip() for k in os.environ.get("GEMINI_API_KEYS", os.environ.get("GEMINI_API_KEY", "")).split(",") if k.strip()]
             model_strs = [m.strip() for m in os.environ.get("GEMINI_MODELS", "gemini-pro").split(",") if m.strip()]
-            if model_name: model_strs = [model_name]
+            if model_name:
+                model_strs = [model_name]
             
             for key in keys:
                 for mod in model_strs:
@@ -57,7 +63,8 @@ class LLMRouter:
         elif provider == LLMProvider.GROQ:
             keys = [k.strip() for k in os.environ.get("GROQ_API_KEYS", os.environ.get("GROQ_API_KEY", "")).split(",") if k.strip()]
             model_strs = [m.strip() for m in os.environ.get("GROQ_MODELS", "llama-3.3-70b-versatile").split(",") if m.strip()]
-            if model_name: model_strs = [model_name]
+            if model_name:
+                model_strs = [model_name]
             
             for key in keys:
                 for mod in model_strs:
@@ -70,7 +77,8 @@ class LLMRouter:
         elif provider == LLMProvider.OPENAI:
             keys = [k.strip() for k in os.environ.get("OPENAI_API_KEYS", os.environ.get("OPENAI_API_KEY", "")).split(",") if k.strip()]
             model_strs = [m.strip() for m in os.environ.get("OPENAI_MODELS", "gpt-4-turbo-preview").split(",") if m.strip()]
-            if model_name: model_strs = [model_name]
+            if model_name:
+                model_strs = [model_name]
             
             for key in keys:
                 for mod in model_strs:

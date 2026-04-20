@@ -1,8 +1,8 @@
 """
 Data pipeline routes: upload, profile, validate-target, EDA, cleaning, feature engineering.
 """
-from fastapi import APIRouter, HTTPException, UploadFile, File
 import os
+from fastapi import APIRouter, HTTPException, UploadFile, File
 import pandas as pd
 from pathlib import Path
 from pydantic import BaseModel
@@ -239,47 +239,33 @@ async def analyze_target(request: AnalyzeTargetRequest):
         f'\nUser\'s problem statement: "{request.problem_statement}"' if request.problem_statement.strip() else ""
     )
 
-    prompt = f"""You are a senior data scientist. Critically analyze this dataset and provide structured insights.
-
-Dataset: {rows} rows × {cols} columns
-Column schema:
-{schema_str}
-{problem_stmt_section}
-
-Return a JSON object with EXACTLY this structure (no markdown, raw JSON only):
-{{
-  "analysis_summary": "2-3 sentence critical assessment of the dataset — data quality, structure, what it appears to represent, any concerns",
-  "possible_problems": [
-    {{
-      "title": "Short problem title",
-      "description": "What this ML problem would solve and why this data supports it",
-      "recommended_target": "exact_column_name",
-      "task_type": "classification|regression|timeseries",
-      "confidence": "high|medium|low",
-      "reasoning": "Why this target and task type makes sense given the data"
-    }}
-  ],
-  "primary_suggestion": {{
-    "target_col": "exact_column_name",
-    "task_type": "classification|regression|timeseries",
-    "explanation": "Why this is the best default choice"
-  }},
-  "problem_statement_insight": "If a problem statement was given, specifically address it and map it to the best target + task type. Otherwise leave empty string.",
-  "data_quality_flags": ["list of data quality concerns if any — e.g. high missing values, leakage risk, constant columns"],
-  "columns_to_exclude_suggestion": ["list of column names that look like IDs, emails, or obviously irrelevant identifiers"]
-}}
-
-Rules:
-- possible_problems should have 2-4 items covering different viable targets/approaches
-- recommended_target must be an exact column name from the schema above
-- If problem_statement is given, make sure the primary_suggestion directly addresses it
-- Be critical: flag real data quality issues, don't just be optimistic
-"""
+    system_prompt = (
+        "You are a senior data scientist. Critically analyze datasets and provide structured insights. "
+        "Return a JSON object with EXACTLY this structure (no markdown, raw JSON only):\n"
+        "{\n"
+        "  \"analysis_summary\": \"2-3 sentence critical assessment\",\n"
+        "  \"possible_problems\": [{\"title\": \"\", \"description\": \"\", \"recommended_target\": \"\", \"task_type\": \"\", \"confidence\": \"\", \"reasoning\": \"\"}],\n"
+        "  \"primary_suggestion\": {\"target_col\": \"\", \"task_type\": \"\", \"explanation\": \"\"},\n"
+        "  \"problem_statement_insight\": \"\",\n"
+        "  \"data_quality_flags\": [],\n"
+        "  \"columns_to_exclude_suggestion\": []\n"
+        "}\n"
+        "Rules: possible_problems should have 2-4 items; recommended_target must be an exact column name; "
+        "primary_suggestion must address any given problem statement; be critical about data quality."
+    )
+    human_prompt = (
+        f"Dataset: {rows} rows × {cols} columns\n"
+        f"Column schema:\n{schema_str}"
+        f"{problem_stmt_section}"
+    )
 
     try:
         llm = get_llm(provider=request.provider)
-        response = llm.invoke([SystemMessage(content=prompt)])
-        raw = response.content.strip()
+        response = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=human_prompt),
+        ])
+        raw = str(response.content).strip()
         # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("```")[1]
@@ -288,8 +274,8 @@ Rules:
         result = _json.loads(raw.strip())
     except Exception as exc:
         # Fallback: simple heuristic suggestion
-        numeric_cols = df.select_dtypes(include="number").columns.tolist()
-        cat_cols = df.select_dtypes(include="object").columns.tolist()
+        #numeric_cols = df.select_dtypes(include="number").columns.tolist()
+        #cat_cols = df.select_dtypes(include="object").columns.tolist()
         last_col = df.columns[-1]
         result = {
             "analysis_summary": f"Dataset has {rows} rows and {cols} columns. Analysis via LLM failed ({exc}). Heuristic suggestions shown.",

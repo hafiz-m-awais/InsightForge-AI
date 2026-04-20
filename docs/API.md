@@ -231,7 +231,7 @@ Evaluate tuned models on a held-out test split.
 }
 ```
 
-> **Note:** Requires `featureEngineeringResult.processed_path` — passing the raw upload path will produce incorrect results because preprocessing (encoding, scaling) has not been applied.
+> **Note:** Requires the dataset path from the feature engineering step (`POST /api/feature-engineering` response field `processed_path`), not the original upload path. Passing the raw upload path will produce incorrect results because preprocessing (encoding, scaling) has not been applied.
 
 ---
 

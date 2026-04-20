@@ -1041,11 +1041,15 @@ export function Step4EDA() {
             context={{
               target_col: targetCol,
               task_type: taskType,
-              health_score: (edaResult as EDAResult)?.data_health_score,
-              outlier_count: (edaResult as EDAResult)?.outlier_summary?.total_outliers,
-              leakage_flags_count: (edaResult as EDAResult)?.leakage_flags?.length,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              health_score: (edaResult as any)?.data_health_score,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              outlier_count: (edaResult as any)?.outlier_summary?.total_outliers,
+              leakage_flags_count: typed?.leakage_flags?.length,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
               correlation_with_target_top5: Object.fromEntries(
-                Object.entries((edaResult as EDAResult)?.correlation_with_target ?? {}).slice(0, 5)
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                Object.entries(((edaResult as any)?.correlation_with_target ?? {}) as Record<string, unknown>).slice(0, 5)
               ),
             }}
             className="mb-3"
