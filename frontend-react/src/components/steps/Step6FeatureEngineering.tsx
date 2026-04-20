@@ -5,7 +5,6 @@ import {
 } from 'lucide-react'
 import { usePipelineStore, type FeatureEngineeringConfig } from '@/store/pipelineStore'
 import { runFeatureEngineering } from '@/api/client'
-import { StepInsights } from '@/components/StepInsights'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -556,17 +555,6 @@ export function Step6FeatureEngineering() {
       {/* Footer CTA */}
       {featureEngineeringResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
-          <StepInsights
-            step="feature_engineering"
-            context={{
-              cols_before: featureEngineeringResult.cols_before,
-              cols_after: featureEngineeringResult.cols_after,
-              new_features: featureEngineeringResult.new_features,
-              encoded_cols: featureEngineeringResult.encoded_cols,
-              actions_taken: featureEngineeringResult.actions_taken,
-            }}
-            className="mb-3"
-          />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             {featureEngineeringResult.cols_after} features ready for model training

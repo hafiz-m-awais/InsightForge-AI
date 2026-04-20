@@ -1,7 +1,7 @@
 """
 Data pipeline routes: upload, profile, validate-target, EDA, cleaning, feature engineering.
 """
-import os
+#import os
 from fastapi import APIRouter, HTTPException, UploadFile, File
 import pandas as pd
 from pathlib import Path
@@ -271,7 +271,15 @@ async def analyze_target(request: AnalyzeTargetRequest):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        result = _json.loads(raw.strip())
+        raw = raw.strip()
+        # Extract outermost {...} block — handles LLM preamble/postamble text
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            raw = raw[start : end + 1]
+        # Normalise Python-style booleans/None
+        raw = raw.replace(": True", ": true").replace(": False", ": false").replace(": None", ": null")
+        result = _json.loads(raw)
     except Exception as exc:
         # Fallback: simple heuristic suggestion
         #numeric_cols = df.select_dtypes(include="number").columns.tolist()

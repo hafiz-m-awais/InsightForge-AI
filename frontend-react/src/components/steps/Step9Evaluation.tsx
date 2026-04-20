@@ -5,7 +5,6 @@ import {
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import { runModelEvaluation, generateEvaluationReport } from '@/api/client'
-import { StepInsights } from '@/components/StepInsights'
 import { cn } from '@/lib/utils'
 import type { OptimizationStrategy } from '@/types/api'
 
@@ -545,16 +544,6 @@ export function Step9Evaluation() {
 
       {evaluationResult && (
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
-          <StepInsights
-            step="evaluation"
-            context={{
-              best_performing_model: evaluationResult.best_performing_model,
-              models_evaluated: evaluationResult.evaluations.map((e) => e.model_name),
-              metrics_used: selectedMetrics,
-              test_samples: evaluationResult.test_split_info?.test_samples,
-            }}
-            className="mb-3"
-          />
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
             {evaluationResult.evaluations.length} models evaluated on {selectedMetrics.length} metrics
