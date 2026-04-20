@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import {
   Play, Pause, CheckCircle2, ArrowRight, AlertTriangle,
-  Settings, Target, Zap, RefreshCw, PauseCircle, Sliders, RotateCcw, Check,
+  Settings, Target, Zap, RefreshCw, PauseCircle, Sliders, RotateCcw, Check, SkipForward,
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import { runHyperparameterTuning, getTrainingProgress } from '@/api/client'
@@ -189,16 +189,24 @@ export function Step8TrainingTuning() {
   const [progress, setProgress] = useState<TrainingProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [results, setResults] = useState<ModelTrainingResult[]>([])
-  const [paramConfig, setParamConfig] = useState<Record<string, ParamEntry>>({})
+  // Per-model param config — one config record per trained model
+  const [perModelParamConfig, setPerModelParamConfig] = useState<Record<string, Record<string, ParamEntry>>>({})
+  const [activeParamModelTab, setActiveParamModelTab] = useState<string>('')
+  // Which models to actually run tuning for (user can deselect)
+  const [modelsToTune, setModelsToTune] = useState<string[]>([])
 
-  // Initialise param config whenever the model to tune changes
+  // Initialise per-model param configs whenever model selection result changes
   useEffect(() => {
     if (!modelSelectionResult) return
-    const modelToTune =
-      (modelSelectionResult as any)?.training_results?.best_model ||
-      (modelSelectionResult as any)?.selected_models?.[0] ||
-      ''
-    setParamConfig(initParamConfig(modelToTune))
+    const allModels: string[] = [
+      ...((modelSelectionResult as any)?.training_results?.models_trained ?? []),
+      ...((modelSelectionResult as any)?.selected_models ?? []),
+    ].filter((v, i, a) => v && a.indexOf(v) === i) // unique, non-empty
+    const configs: Record<string, Record<string, ParamEntry>> = {}
+    for (const m of allModels) configs[m] = initParamConfig(m)
+    setPerModelParamConfig(configs)
+    setActiveParamModelTab(allModels[0] ?? '')
+    setModelsToTune(allModels)
   }, [modelSelectionResult])
 
   // Local elapsed timer — ticks every second while running so the clock updates
@@ -231,10 +239,11 @@ export function Step8TrainingTuning() {
     return () => clearInterval(interval)
   }, [running, paused])
 
-  // Convert paramConfig state → API payload (undefined if nothing is enabled)
-  const buildCustomParamGrid = (): Record<string, (number | string | null)[]> | undefined => {
+  // Convert a single model's paramConfig → API payload (undefined if nothing is enabled)
+  const buildCustomParamGrid = (modelName: string): Record<string, (number | string | null)[]> | undefined => {
+    const config = perModelParamConfig[modelName] ?? {}
     const grid: Record<string, (number | string | null)[]> = {}
-    for (const [param, entry] of Object.entries(paramConfig)) {
+    for (const [param, entry] of Object.entries(config)) {
       if (!entry.enabled || entry.values.length === 0) continue
       grid[param] = entry.values.map(v => {
         if (v === 'null' || v === 'None') return null
@@ -249,73 +258,75 @@ export function Step8TrainingTuning() {
   }
 
   const handleStartTraining = async () => {
-    if (!modelSelectionResult) return
-    
+    if (!modelSelectionResult || modelsToTune.length === 0) return
+
     setRunning(true)
     setPaused(false)
     setError(null)
     setProgress(null)
-    addLog(`[Step 8] Starting ${selectedStrategy} tuning...`, 'info')
+
+    const { featureEngineeringResult, targetCol } = usePipelineStore.getState()
+    if (!featureEngineeringResult || !targetCol) {
+      setError('Missing dataset path or target column')
+      setRunning(false)
+      return
+    }
+
+    const cvScores = modelSelectionResult.training_results.cv_scores ?? {}
+    const tunedResults: ModelTrainingResult[] = []
 
     try {
-      // For now, tune the best model from model selection
-      const modelToTune = modelSelectionResult.training_results.best_model || 
-                         modelSelectionResult.selected_models[0]
-      
-      // We need to get dataset info from the pipeline
-      const { featureEngineeringResult, targetCol } = usePipelineStore.getState()
-      
-      if (!featureEngineeringResult || !targetCol) {
-        throw new Error('Missing dataset path or target column')
-      }
-      
-      const tuningResponse = await runHyperparameterTuning({
-        dataset_path: featureEngineeringResult.processed_path,
-        target_col: targetCol,
-        model_name: modelToTune,
-        strategy: selectedStrategy,
-        max_trials: maxTrials,
-        cv_folds: cvFolds,
-        timeout_minutes: timeoutMinutes,
-        early_stopping_rounds: earlyStoppingRounds,
-        custom_param_grid: buildCustomParamGrid(),
-      })
-      
-      // Build tuning results using the actual API response where available.
-      // Fall back to CV scores from model selection only for models not in the tuning response.
-      const trainedModels = modelSelectionResult.training_results.models_trained
-      const cvScores = modelSelectionResult.training_results.cv_scores
-
-      // The backend tunes one model at a time; spread its results to all trained models
-      // so downstream steps have a consistent structure.
-      const tunedResults: ModelTrainingResult[] = trainedModels.map(model => {
-        const modelCv = cvScores[model] ?? []
-        const avgCv = modelCv.length
-          ? modelCv.reduce((a, b) => a + b, 0) / modelCv.length
-          : 0.85 + Math.random() * 0.1
-        // Use real best_params / best_score for the model that was actually tuned
-        const isTheTunedModel = model.toLowerCase() === modelToTune.toLowerCase()
-        return {
-          model_name: model,
-          best_score: isTheTunedModel ? (tuningResponse.best_score ?? avgCv) : avgCv,
-          best_params: isTheTunedModel ? (tuningResponse.best_params ?? {}) : {},
+      for (const modelName of modelsToTune) {
+        addLog(`[Step 8] Tuning ${modelName} with ${selectedStrategy}…`, 'info')
+        const tuningResponse = await runHyperparameterTuning({
+          dataset_path: featureEngineeringResult.processed_path,
+          target_col: targetCol,
+          model_name: modelName,
+          strategy: selectedStrategy,
+          max_trials: maxTrials,
+          cv_folds: cvFolds,
+          timeout_minutes: timeoutMinutes,
+          early_stopping_rounds: earlyStoppingRounds,
+          custom_param_grid: buildCustomParamGrid(modelName),
+        })
+        const modelCv = cvScores[modelName] ?? []
+        tunedResults.push({
+          model_name: modelName,
+          best_score: tuningResponse.best_score ?? (modelCv.length ? modelCv.reduce((a: number, b: number) => a + b, 0) / modelCv.length : 0),
+          best_params: tuningResponse.best_params ?? {},
           cv_scores: modelCv.length ? modelCv : Array.from({ length: cvFolds }, () => 0.8 + Math.random() * 0.15),
-          training_time: isTheTunedModel ? (tuningResponse.elapsed_time ?? 120) : 120 + Math.random() * 60,
+          training_time: tuningResponse.elapsed_time ?? 120,
           tuning_strategy: selectedStrategy,
-          total_trials: isTheTunedModel ? (tuningResponse.max_trials ?? maxTrials) : maxTrials,
-        }
-      })
-      
+          total_trials: tuningResponse.max_trials ?? maxTrials,
+        })
+      }
+
+      // For models the user skipped tuning on, carry forward base CV scores
+      const allModels: string[] = (modelSelectionResult.training_results.models_trained ?? modelSelectionResult.selected_models ?? [])
+      for (const model of allModels) {
+        if (modelsToTune.includes(model)) continue
+        const modelCv = cvScores[model] ?? []
+        const avgCv = modelCv.length ? modelCv.reduce((a: number, b: number) => a + b, 0) / modelCv.length : 0
+        tunedResults.push({
+          model_name: model,
+          best_score: avgCv,
+          best_params: {},
+          cv_scores: modelCv,
+          training_time: 0,
+          tuning_strategy: 'none',
+          total_trials: 0,
+        })
+      }
+
       setResults(tunedResults)
       setTuningResult({
         strategy: selectedStrategy,
         results: tunedResults,
         best_model: tunedResults.reduce((a, b) => a.best_score > b.best_score ? a : b),
-        total_trials: maxTrials,
+        total_trials: maxTrials * modelsToTune.length,
         completion_time: Date.now(),
       })
-      
-      addLog('[Step 8] Hyperparameter tuning complete', 'success')
+      addLog(`[Step 8] Tuning complete for ${modelsToTune.length} model(s)`, 'success')
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Hyperparameter tuning failed'
       setError(msg)
@@ -324,6 +335,27 @@ export function Step8TrainingTuning() {
       setRunning(false)
       setPaused(false)
     }
+  }
+
+  // Skip tuning — carry forward base scores from model selection
+  const handleSkip = () => {
+    if (!modelSelectionResult) { completeStep(10); return }
+    const cvScores = modelSelectionResult.training_results.cv_scores ?? {}
+    const allModels: string[] = modelSelectionResult.training_results.models_trained ?? modelSelectionResult.selected_models ?? []
+    const skipResults: ModelTrainingResult[] = allModels.map(model => {
+      const modelCv = cvScores[model] ?? []
+      const avgCv = modelCv.length ? modelCv.reduce((a: number, b: number) => a + b, 0) / modelCv.length : 0
+      return { model_name: model, best_score: avgCv, best_params: {}, cv_scores: modelCv, training_time: 0, tuning_strategy: 'none', total_trials: 0 }
+    })
+    setTuningResult({
+      strategy: 'none',
+      results: skipResults,
+      best_model: skipResults.length ? skipResults.reduce((a, b) => a.best_score > b.best_score ? a : b) : null,
+      total_trials: 0,
+      completion_time: Date.now(),
+    })
+    addLog('[Step 8] Hyperparameter tuning skipped — using base scores', 'info')
+    completeStep(10)
   }
 
   const handlePauseResume = () => {
@@ -502,33 +534,60 @@ export function Step8TrainingTuning() {
               </div>
             </section>
 
-            {/* ─── Parameter Configuration ─── */}
+            {/* ─── Parameter Configuration (per model) ─── */}
             <section>
               <h3 className="font-semibold text-sm flex items-center gap-2 mb-3">
                 <Sliders className="w-4 h-4" />
                 Parameter Configuration
-                <span className="text-[11px] font-normal text-muted-foreground ml-1">
-                  ({Object.values(paramConfig).filter(p => p.enabled).length} / {Object.keys(paramConfig).length} active)
-                </span>
-                <button
-                  onClick={() => {
-                    const modelToTune =
-                      (modelSelectionResult as any)?.training_results?.best_model ||
-                      (modelSelectionResult as any)?.selected_models?.[0] ||
-                      ''
-                    setParamConfig(initParamConfig(modelToTune))
-                  }}
-                  className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <RotateCcw className="w-3 h-3" /> Reset
-                </button>
+                {activeParamModelTab && perModelParamConfig[activeParamModelTab] && (
+                  <span className="text-[11px] font-normal text-muted-foreground ml-1">
+                    ({Object.values(perModelParamConfig[activeParamModelTab]).filter(p => p.enabled).length} / {Object.keys(perModelParamConfig[activeParamModelTab]).length} active)
+                  </span>
+                )}
+                {activeParamModelTab && (
+                  <button
+                    onClick={() => setPerModelParamConfig(prev => ({ ...prev, [activeParamModelTab]: initParamConfig(activeParamModelTab) }))}
+                    className="ml-auto flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <RotateCcw className="w-3 h-3" /> Reset
+                  </button>
+                )}
               </h3>
 
-              {Object.keys(paramConfig).length === 0 ? (
+              {/* Model tabs */}
+              {Object.keys(perModelParamConfig).length > 1 && (
+                <div className="flex flex-wrap gap-1.5 mb-3">
+                  {Object.keys(perModelParamConfig).map(m => (
+                    <button
+                      key={m}
+                      onClick={() => setActiveParamModelTab(m)}
+                      className={cn(
+                        'text-[11px] px-3 py-1 rounded-full border transition-all',
+                        activeParamModelTab === m
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'border-border text-muted-foreground hover:text-foreground hover:border-primary/50'
+                      )}
+                    >
+                      {m}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {!activeParamModelTab || Object.keys(perModelParamConfig[activeParamModelTab] ?? {}).length === 0 ? (
                 <p className="text-xs text-muted-foreground italic">No configurable parameters available.</p>
               ) : (
                 <div className="space-y-2">
-                  {Object.entries(paramConfig).map(([param, entry]) => (
+                  {Object.entries(perModelParamConfig[activeParamModelTab]).map(([param, entry]) => {
+                    const setEntry = (updater: (e: ParamEntry) => ParamEntry) =>
+                      setPerModelParamConfig(prev => ({
+                        ...prev,
+                        [activeParamModelTab]: {
+                          ...prev[activeParamModelTab],
+                          [param]: updater(prev[activeParamModelTab][param]),
+                        },
+                      }))
+                    return (
                     <div
                       key={param}
                       className={`border rounded-xl p-3 transition-all ${
@@ -538,12 +597,7 @@ export function Step8TrainingTuning() {
                       {/* Header row */}
                       <div className="flex items-center gap-2 mb-2">
                         <button
-                          onClick={() =>
-                            setParamConfig(prev => ({
-                              ...prev,
-                              [param]: { ...prev[param], enabled: !prev[param].enabled },
-                            }))
-                          }
+                          onClick={() => setEntry(e => ({ ...e, enabled: !e.enabled }))}
                           className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 transition-colors ${
                             entry.enabled ? 'bg-primary border-primary' : 'border-border'
                           }`}
@@ -571,18 +625,13 @@ export function Step8TrainingTuning() {
                               value={entry.values.join(', ')}
                               onChange={e => {
                                 const vals = e.target.value.split(',').map(v => v.trim()).filter(Boolean)
-                                setParamConfig(prev => ({ ...prev, [param]: { ...prev[param], values: vals } }))
+                                setEntry(en => ({ ...en, values: vals }))
                               }}
                               className="flex-1 px-2 py-1.5 text-xs border border-border rounded-md bg-background font-mono"
                               placeholder="e.g. 0.1, 1.0, 10.0"
                             />
                             <button
-                              onClick={() =>
-                                setParamConfig(prev => ({
-                                  ...prev,
-                                  [param]: { ...prev[param], rangeOpen: !prev[param].rangeOpen },
-                                }))
-                              }
+                              onClick={() => setEntry(en => ({ ...en, rangeOpen: !en.rangeOpen }))}
                               className="text-xs px-2 py-1.5 bg-muted hover:bg-muted/80 rounded-md transition-colors whitespace-nowrap"
                             >
                               Range ▾
@@ -593,9 +642,7 @@ export function Step8TrainingTuning() {
                               <input
                                 type="number"
                                 value={entry.rangeMin}
-                                onChange={e =>
-                                  setParamConfig(prev => ({ ...prev, [param]: { ...prev[param], rangeMin: e.target.value } }))
-                                }
+                                onChange={e => setEntry(en => ({ ...en, rangeMin: e.target.value }))}
                                 placeholder="Min"
                                 className="w-20 px-2 py-1 text-xs border border-border rounded bg-background"
                               />
@@ -603,18 +650,14 @@ export function Step8TrainingTuning() {
                               <input
                                 type="number"
                                 value={entry.rangeMax}
-                                onChange={e =>
-                                  setParamConfig(prev => ({ ...prev, [param]: { ...prev[param], rangeMax: e.target.value } }))
-                                }
+                                onChange={e => setEntry(en => ({ ...en, rangeMax: e.target.value }))}
                                 placeholder="Max"
                                 className="w-20 px-2 py-1 text-xs border border-border rounded bg-background"
                               />
                               <input
                                 type="number"
                                 value={entry.rangeCount}
-                                onChange={e =>
-                                  setParamConfig(prev => ({ ...prev, [param]: { ...prev[param], rangeCount: e.target.value } }))
-                                }
+                                onChange={e => setEntry(en => ({ ...en, rangeCount: e.target.value }))}
                                 placeholder="Steps"
                                 min="2"
                                 max="20"
@@ -627,10 +670,7 @@ export function Step8TrainingTuning() {
                                   const count = Math.max(2, Math.min(20, parseInt(entry.rangeCount) || 5))
                                   if (isNaN(min) || isNaN(max) || min >= max) return
                                   const vals = linspace(min, max, count).map(String)
-                                  setParamConfig(prev => ({
-                                    ...prev,
-                                    [param]: { ...prev[param], values: vals, rangeOpen: false },
-                                  }))
+                                  setEntry(en => ({ ...en, values: vals, rangeOpen: false }))
                                 }}
                                 className="text-xs px-3 py-1 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
                               >
@@ -651,12 +691,7 @@ export function Step8TrainingTuning() {
                             >
                               {v}
                               <button
-                                onClick={() =>
-                                  setParamConfig(prev => ({
-                                    ...prev,
-                                    [param]: { ...prev[param], values: prev[param].values.filter(x => x !== v) },
-                                  }))
-                                }
+                                onClick={() => setEntry(en => ({ ...en, values: en.values.filter(x => x !== v) }))}
                                 className="text-primary/50 hover:text-rose-400 transition-colors ml-0.5 leading-none"
                               >
                                 ×
@@ -671,10 +706,7 @@ export function Step8TrainingTuning() {
                               if (e.key === 'Enter') {
                                 const val = (e.target as HTMLInputElement).value.trim()
                                 if (val && !entry.values.includes(val)) {
-                                  setParamConfig(prev => ({
-                                    ...prev,
-                                    [param]: { ...prev[param], values: [...prev[param].values, val] },
-                                  }));
+                                  setEntry(en => ({ ...en, values: [...en.values, val] }));
                                   (e.target as HTMLInputElement).value = ''
                                 }
                               }
@@ -683,23 +715,43 @@ export function Step8TrainingTuning() {
                         </div>
                       )}
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
             </section>
 
+            {/* Models to tune — checkboxes */}
             <section>
               <div className="bg-muted/30 border border-border rounded-xl p-4">
-                <h4 className="text-sm font-medium mb-2">Selected Models for Tuning</h4>
+                <h4 className="text-sm font-medium mb-2">Select Models to Tune</h4>
+                <p className="text-xs text-muted-foreground mb-3">Uncheck a model to skip tuning it — its base score from model selection will be carried forward.</p>
                 <div className="flex flex-wrap gap-2">
-                  {modelSelectionResult.selected_models.map((model) => (
-                    <span
-                      key={model}
-                      className="text-xs px-3 py-1 bg-primary/20 text-primary rounded-full"
-                    >
-                      {model}
-                    </span>
-                  ))}
+                  {Object.keys(perModelParamConfig).map((model) => {
+                    const checked = modelsToTune.includes(model)
+                    return (
+                      <button
+                        key={model}
+                        onClick={() => setModelsToTune(prev =>
+                          prev.includes(model) ? prev.filter(m => m !== model) : [...prev, model]
+                        )}
+                        className={cn(
+                          'flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all',
+                          checked
+                            ? 'bg-primary/15 border-primary/40 text-primary'
+                            : 'bg-muted/30 border-border text-muted-foreground'
+                        )}
+                      >
+                        <span className={cn(
+                          'w-3.5 h-3.5 rounded border-2 flex items-center justify-center shrink-0',
+                          checked ? 'bg-primary border-primary' : 'border-border'
+                        )}>
+                          {checked && <Check className="w-2 h-2 text-primary-foreground" />}
+                        </span>
+                        {model}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             </section>
@@ -711,14 +763,24 @@ export function Step8TrainingTuning() {
                   {error}
                 </div>
               )}
-              
-              <button
-                onClick={handleStartTraining}
-                className="flex items-center gap-2 bg-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors"
-              >
-                <Play className="w-4 h-4" />
-                Start Hyperparameter Tuning
-              </button>
+
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleStartTraining}
+                  disabled={modelsToTune.length === 0}
+                  className="flex items-center gap-2 bg-primary text-primary-foreground px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Play className="w-4 h-4" />
+                  Start Tuning{modelsToTune.length > 0 ? ` (${modelsToTune.length} model${modelsToTune.length > 1 ? 's' : ''})` : ''}
+                </button>
+                <button
+                  onClick={handleSkip}
+                  className="flex items-center gap-2 text-muted-foreground hover:text-foreground border border-border hover:border-border/80 px-5 py-2.5 rounded-xl text-sm font-medium transition-colors"
+                >
+                  <SkipForward className="w-4 h-4" />
+                  Skip Tuning
+                </button>
+              </div>
             </section>
           </>
         )}
@@ -848,7 +910,8 @@ export function Step8TrainingTuning() {
         <div className="flex-none flex items-center justify-between px-5 py-3 border-t border-border bg-card">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            {results.length} model{results.length > 1 ? 's' : ''} tuned using {selectedStrategy}
+            {results.filter(r => r.tuning_strategy !== 'none').length} model{results.filter(r => r.tuning_strategy !== 'none').length !== 1 ? 's' : ''} tuned
+            {results.some(r => r.tuning_strategy === 'none') && `, ${results.filter(r => r.tuning_strategy === 'none').length} skipped`}
           </div>
           <button
             onClick={() => completeStep(10)}

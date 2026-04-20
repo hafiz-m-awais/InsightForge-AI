@@ -387,7 +387,7 @@ export function Step12ModelSaving() {
         </p>
         <button
           onClick={() => completeStep(13)}
-          className="flex items-center gap-2 px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors"
+          className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors"
         >
           Complete & Continue <ArrowRight className="w-4 h-4" />
         </button>

@@ -1161,7 +1161,7 @@ export function Step15PredictionPlayground() {
 
       <div className="flex-none px-6 py-4 border-t border-border flex items-center justify-between">
         <p className="text-xs text-muted-foreground">Step 15 · Always available · full preprocessing pipeline applied at inference</p>
-        <button onClick={() => completeStep(15)} className="flex items-center gap-2 px-5 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors">
+        <button onClick={() => completeStep(15)} className="flex items-center gap-2 px-5 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors">
           <CheckCircle2 className="w-4 h-4" /> Complete &amp; Finish
         </button>
       </div>

@@ -204,9 +204,11 @@ function DataHealthScore({ result }: { result: EDAResult }) {
 function OverviewCards({ result, targetCol, taskType }: {
   result: EDAResult; targetCol: string; taskType: string
 }) {
-  const summary = result.dataset_summary
+  const summary = result.dataset_summary ?? {} as any
   const td = (result.target_distribution ?? {}) as any
   const imbalanceAlert = taskType === 'classification' && ((td.imbalance_ratio ?? 1) > 3)
+
+  if (!result.dataset_summary) return null
 
   return (
     <div className="space-y-5">
@@ -215,11 +217,11 @@ function OverviewCards({ result, targetCol, taskType }: {
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {[
-          { label: 'Rows',            value: summary.rows.toLocaleString(),  sub: null,                                               color: 'text-blue-400'   },
-          { label: 'Features',        value: String(summary.cols),           sub: `${summary.numeric_cols} num / ${summary.cat_cols} cat`, color: 'text-violet-400' },
-          { label: 'Missing',         value: `${summary.overall_missing_pct}%`, sub: `${result.missing_data.length} cols affected`,   color: summary.overall_missing_pct > 10 ? 'text-red-400' : 'text-amber-400' },
-          { label: 'Duplicates',      value: summary.duplicate_rows.toLocaleString(), sub: `${summary.duplicate_pct}%`,              color: summary.duplicate_rows > 0 ? 'text-amber-400' : 'text-emerald-400' },
-          { label: 'Skewed Features', value: String(summary.skewed_features), sub: '|skew| > 1',                                     color: summary.skewed_features > 3 ? 'text-amber-400' : 'text-muted-foreground' },
+          { label: 'Rows',            value: (summary.rows ?? 0).toLocaleString(),  sub: null,                                               color: 'text-blue-400'   },
+          { label: 'Features',        value: String(summary.cols ?? '—'),           sub: `${summary.numeric_cols ?? 0} num / ${summary.cat_cols ?? 0} cat`, color: 'text-violet-400' },
+          { label: 'Missing',         value: `${summary.overall_missing_pct ?? 0}%`, sub: `${result.missing_data?.length ?? 0} cols affected`, color: (summary.overall_missing_pct ?? 0) > 10 ? 'text-red-400' : 'text-amber-400' },
+          { label: 'Duplicates',      value: (summary.duplicate_rows ?? 0).toLocaleString(), sub: `${summary.duplicate_pct ?? 0}%`,          color: (summary.duplicate_rows ?? 0) > 0 ? 'text-amber-400' : 'text-emerald-400' },
+          { label: 'Skewed Features', value: String(summary.skewed_features ?? '—'), sub: '|skew| > 1',                                     color: (summary.skewed_features ?? 0) > 3 ? 'text-amber-400' : 'text-muted-foreground' },
         ].map((card) => (
           <div key={card.label} className="rounded-xl border border-border bg-card p-4 space-y-1">
             <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{card.label}</p>

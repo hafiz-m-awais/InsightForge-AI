@@ -5,45 +5,48 @@
 @layer base {
   :root {
     /* Light theme */
-    --background: 0 0% 100%;
+    --background: 210 20% 96%;          /* soft grey page bg — not pure white */
     --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
+    --card: 0 0% 100%;                  /* cards pop against grey bg */
     --card-foreground: 222.2 84% 4.9%;
     --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 210 40% 96%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 30% 92%;           /* slightly deeper than bg */
     --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
+    --muted: 210 25% 93%;               /* distinct from secondary */
+    --muted-foreground: 215.4 16.3% 40%;/* slightly darker for readability */
+    --accent: 217 30% 90%;              /* hover surface — tinted blue */
     --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
+    --destructive: 0 84.2% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214.3 25% 85%;            /* visible but soft */
+    --input: 214.3 25% 88%;
     --ring: 221.2 83.2% 53.3%;
+    --sidebar: 210 18% 91%;             /* sidebar slightly darker than bg */
     --radius: 0.5rem;
   }
 
   .dark {
     /* Dark theme */
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
+    --background: 222 47% 6%;           /* deep navy page bg */
+    --foreground: 210 40% 96%;
+    --card: 222 40% 10%;                /* cards visibly elevated from bg */
+    --card-foreground: 210 40% 96%;
+    --primary: 217.2 91.2% 62%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 30% 16%;           /* interactive hover surface */
+    --secondary-foreground: 210 40% 96%;
+    --muted: 217 28% 14%;               /* subdued fill — distinct from secondary */
+    --muted-foreground: 215 22% 62%;
+    --accent: 217 35% 18%;              /* hover bg — more distinct than before */
+    --accent-foreground: 210 40% 96%;
+    --destructive: 0 72% 48%;           /* brighter red — visible on dark bg */
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 25% 20%;              /* border separate from muted/accent */
+    --input: 217 28% 16%;
+    --ring: 224.3 76.3% 55%;
+    --sidebar: 222 45% 8%;              /* sidebar slightly different from card */
+    --radius: 0.5rem;
   }
 }
 

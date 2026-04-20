@@ -74,7 +74,7 @@ export interface TuningResults {
     model_name: string
     best_score: number
     best_params: Record<string, any>
-  }
+  } | null
   total_trials: number
   completion_time: number
 }

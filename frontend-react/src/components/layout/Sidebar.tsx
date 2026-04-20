@@ -106,7 +106,7 @@ export function Sidebar() {
 
   return (
     <aside className={cn(
-      'flex flex-col min-h-screen border-r border-border bg-card shrink-0 transition-all duration-300',
+      'flex flex-col min-h-screen border-r border-border bg-sidebar shrink-0 transition-all duration-300',
       collapsed ? 'w-12' : 'w-60'
     )}>
       {/* Brand */}
@@ -165,7 +165,7 @@ export function Sidebar() {
           className={cn(
             'w-full flex items-center gap-2.5 rounded-md px-2 py-2 text-xs transition-all',
             currentStep === 0
-              ? 'bg-primary/15 text-primary font-semibold'
+              ? 'bg-primary/20 text-primary font-semibold ring-1 ring-primary/30'
               : 'text-muted-foreground hover:bg-accent hover:text-foreground'
           )}
           title="Dashboard"
@@ -198,7 +198,7 @@ export function Sidebar() {
                       title={isSkippable ? `Jump to step ${step.id}: ${step.name}` : `${step.id}. ${step.name}`}
                       className={cn(
                         'w-full flex items-center justify-center rounded-md py-2 transition-all',
-                        isActive      ? 'bg-primary/15 text-primary'
+                        isActive      ? 'bg-primary/20 text-primary ring-1 ring-primary/30'
                         : clickable   ? 'text-foreground/60 hover:bg-accent hover:text-foreground'
                                       : 'text-foreground/20 cursor-not-allowed'
                       )}
@@ -239,7 +239,7 @@ export function Sidebar() {
                     className={cn(
                       'w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-all ml-1.5',
                       isActive
-                        ? 'bg-primary/15 text-primary font-medium'
+                        ? 'bg-primary/20 text-primary font-medium ring-1 ring-primary/25'
                         : status === 'completed'
                         ? 'text-foreground/80 hover:bg-accent cursor-pointer'
                         : isSkippable

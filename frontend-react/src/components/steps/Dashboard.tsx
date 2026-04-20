@@ -93,7 +93,7 @@ export function Dashboard() {
     <div className="min-h-full p-6 space-y-6 max-w-6xl mx-auto">
 
       {/* ── Welcome banner ─────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/20 via-primary/8 to-transparent p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+      <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/25 via-primary/10 to-primary/5 p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="space-y-1.5">
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
@@ -155,7 +155,7 @@ export function Dashboard() {
         </div>
         <div className="relative h-3 rounded-full bg-secondary overflow-hidden">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-primary via-blue-400 to-primary/80 transition-all duration-700"
+            className="h-full rounded-full bg-gradient-to-r from-primary to-primary/70 transition-all duration-700"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -189,9 +189,9 @@ export function Dashboard() {
                   {group}
                 </div>
                 <div className="flex items-center gap-2">
-                  <div className="h-1.5 w-20 rounded-full bg-white/10 overflow-hidden">
+                  <div className="h-1.5 w-20 rounded-full bg-black/15 dark:bg-white/10 overflow-hidden">
                     <div
-                      className="h-full rounded-full bg-white/40 transition-all"
+                      className="h-full rounded-full bg-black/40 dark:bg-white/50 transition-all"
                       style={{ width: `${(doneInGroup / groupSteps.length) * 100}%` }}
                     />
                   </div>
@@ -216,17 +216,17 @@ export function Dashboard() {
                       className={cn(
                         'w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs transition-all',
                         status === 'active'
-                          ? 'bg-white/20 text-foreground font-semibold cursor-pointer ring-1 ring-white/30'
+                          ? 'bg-black/15 dark:bg-white/20 text-foreground font-semibold cursor-pointer ring-1 ring-black/20 dark:ring-white/30'
                           : status === 'completed'
-                          ? 'bg-white/8 hover:bg-white/15 text-foreground cursor-pointer'
-                          : 'bg-white/4 text-foreground/30 cursor-not-allowed',
+                          ? 'bg-black/8 dark:bg-white/8 hover:bg-black/12 dark:hover:bg-white/15 text-foreground cursor-pointer'
+                          : 'bg-black/4 dark:bg-white/4 text-foreground/30 cursor-not-allowed',
                       )}
                     >
                       <span className={cn(
                         'w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center shrink-0',
                         status === 'completed' ? 'bg-emerald-500/20 text-emerald-400'
                           : status === 'active' ? 'bg-primary/30 text-primary'
-                          : 'bg-white/10 text-foreground/20'
+                          : 'bg-black/8 dark:bg-white/10 text-foreground/20'
                       )}>
                         {step.id}
                       </span>

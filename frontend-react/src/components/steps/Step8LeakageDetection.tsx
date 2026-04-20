@@ -406,7 +406,7 @@ export function Step8LeakageDetection() {
               </div>
               <button
                 onClick={handleComplete}
-                className="bg-emerald-600 text-white px-4 py-2 rounded-md font-medium hover:bg-emerald-700 flex items-center gap-2"
+                className="bg-primary text-primary-foreground px-4 py-2 rounded-md font-medium hover:bg-primary/90 flex items-center gap-2"
               >
                 Continue
                 <ArrowRight className="w-4 h-4" />
