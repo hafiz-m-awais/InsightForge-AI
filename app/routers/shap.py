@@ -6,7 +6,7 @@ so preprocessing logic stays in one place and SHAP lives in its own module.
 """
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, field_validator
-from pathlib import Path
+#from pathlib import Path
 from typing import Union
 import asyncio
 import logging
@@ -146,10 +146,10 @@ def _run_shap(model, preprocessor, features: dict) -> dict:
         if is_linear:
             # Use a zero-baseline as background for LinearExplainer so the
             # expected_value reflects predictions from a neutral reference point.
+            # Pass the array directly — avoids shap.maskers Pylance false-positive
+            # while remaining compatible with all shap versions.
             background = np.zeros_like(X_row)
-            explainer = shap.LinearExplainer(
-                model, shap.maskers.Independent(background, max_samples=1)
-            )
+            explainer = shap.LinearExplainer(model, background)
             shap_values = explainer.shap_values(X_row)
         elif is_tree:
             explainer = shap.TreeExplainer(model)
