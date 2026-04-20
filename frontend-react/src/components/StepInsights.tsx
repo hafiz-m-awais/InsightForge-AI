@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Sparkles, ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, ArrowRight, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getStepInsights } from '@/api/client'
@@ -69,7 +69,7 @@ export function StepInsights({
   const [expanded, setExpanded] = useState(true)
   const [hasFetched, setHasFetched] = useState(!!cached)
 
-  const fetch = useCallback(async () => {
+  const runFetch = useCallback(async () => {
     if (loading) return
     setLoading(true)
     setError(null)
@@ -85,12 +85,13 @@ export function StepInsights({
     }
   }, [step, context, targetCol, taskType, provider, loading, onResult])
 
-  // Auto-fetch on first render if requested and not already cached
-  const [didAutoFetch, setDidAutoFetch] = useState(false)
-  if (autoFetch && !didAutoFetch && !cached && !loading) {
-    setDidAutoFetch(true)
-    fetch()
-  }
+  // Auto-fetch once on mount if requested and not already cached
+  useEffect(() => {
+    if (autoFetch && !cached) {
+      runFetch()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return (
     <div className={cn('rounded-xl border border-border bg-card', className)}>
@@ -111,7 +112,7 @@ export function StepInsights({
         <div className="flex items-center gap-2">
           {!loading && (
             <button
-              onClick={fetch}
+              onClick={runFetch}
               className="text-xs text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted"
             >
               {hasFetched ? 'Refresh' : 'Analyse'}

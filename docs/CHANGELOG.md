@@ -4,6 +4,23 @@ All notable changes are documented here in reverse chronological order, grouped 
 
 ---
 
+## Session: April 20, 2026 (bugfixes — SHAP & StepInsights)
+
+### `pending` — fix: SHAP broken for datasets with categorical features + StepInsights render bug
+**Files changed:** `app/routers/shap.py`, `frontend-react/src/components/StepInsights.tsx`
+
+**Bug 1 — SHAP fails on any dataset with categorical features (`shap.py`):**
+`_run_shap` was calling `.keys()` and `.get()` on `LabelEncoder` objects stored in `preprocessor["categorical_encoders"]` as if they were plain dicts. Any model trained on a dataset with categorical columns (e.g. `payment_method`, `contract_type`) raised `AttributeError: 'LabelEncoder' object has no attribute 'keys'`, causing a 500 error on the `/api/shap-values` endpoint.
+
+**Fix:** Replaced the dict-style access with the correct `LabelEncoder` API — `enc.classes_` to check known categories, `enc.transform([val_str])` to encode — exactly mirroring how `_run_prediction` in `playground.py` handles the same encoders. Unseen values fall back to `"Unknown"` if present in classes, otherwise to the first known class.
+
+**Bug 2 — `StepInsights` auto-fetch called state setters during render (`StepInsights.tsx`):**
+`setDidAutoFetch(true)` and `fetch()` were invoked directly in the component body (during the render phase) using an inline `if` guard. This violated React's rules — state updates during render cause re-render loops and warnings, and the pattern broke under React Strict Mode's double-invocation.
+
+**Fix:** Moved the auto-fetch logic into a `useEffect(() => { ... }, [])` that runs once after the first mount. Also renamed the local `fetch` function to `runFetch` to stop it shadowing the global `window.fetch`, which was masking any `fetch()`-related TypeScript errors inside the same file.
+
+---
+
 ## Session: April 20, 2026 (continued)
 
 ### `c8a029e` — fix: data consistency across pipeline Steps 8–9

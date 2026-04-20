@@ -103,13 +103,19 @@ def _run_shap(model, preprocessor, features: dict) -> dict:
             except (TypeError, ValueError):
                 row_data[col] = float(imputation.get(col, 0))
 
-        # Categorical encoding
+        # Categorical encoding — encoders are LabelEncoder objects (same as _run_prediction)
         cat_encoders = preprocessor.get("categorical_encoders", {})
         for col, enc in cat_encoders.items():
-            val = str(row_data.get(col, "")) if col in row_data else ""
-            categories = list(enc.keys())
-            encoded_val = enc.get(val, enc.get(categories[0], 0)) if categories else 0
-            row_data[col] = encoded_val
+            if col not in row_data:
+                continue
+            val_str = str(row_data[col]) if row_data[col] is not None and row_data[col] != "" else ""
+            known = set(enc.classes_)
+            if val_str not in known:
+                val_str = "Unknown" if "Unknown" in known else enc.classes_[0]
+            try:
+                row_data[col] = int(enc.transform([val_str])[0])
+            except Exception:
+                row_data[col] = 0
 
         # Pipeline scaler
         if scaler is not None and scaler_cols:
