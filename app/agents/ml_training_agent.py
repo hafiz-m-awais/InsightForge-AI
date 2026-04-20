@@ -54,7 +54,8 @@ class MLTrainingAgent:
         self.random_state = random_state
         self.models_dir = Path("models")
         self.models_dir.mkdir(exist_ok=True)
-        
+        self._fe_transforms_path: str | None = None
+
         # Preprocessing artifacts
         self.categorical_encoders = {}
         self.imputation_values = {}
@@ -486,7 +487,8 @@ class MLTrainingAgent:
     
     def optimize_hyperparameters(self, X_train: pd.DataFrame, y_train: pd.Series,
                                 model_name: str, strategy: str = "random_search",
-                                max_trials: int = 50) -> Dict[str, Any]:
+                                max_trials: int = 50, progress_callback=None,
+                                custom_param_grid: dict | None = None) -> Dict[str, Any]:
         """Optimize hyperparameters for a specific model."""
         logger.info(f"Optimizing hyperparameters for {model_name} using {strategy}")
         
@@ -500,19 +502,48 @@ class MLTrainingAgent:
             raise ValueError(f"Model {model_name} not available for {self.task_type}")
         
         base_model = model_dict[model_name]
-        param_grid = self.param_grids.get(model_name, {})
+
+        # Use caller-supplied grid if provided, otherwise fall back to defaults.
+        if custom_param_grid:
+            param_grid = self._coerce_param_grid(custom_param_grid)
+        else:
+            param_grid = self.param_grids.get(model_name, {})
         
         if not param_grid:
             logger.warning(f"No parameter grid defined for {model_name}")
             return {"best_params": {}, "best_score": 0.0, "optimization_history": []}
         
         if strategy == "bayesian" and OPTUNA_AVAILABLE:
-            return self._bayesian_optimization(base_model, param_grid, X_train, y_train, max_trials)
+            return self._bayesian_optimization(base_model, param_grid, X_train, y_train, max_trials, progress_callback)
         else:
-            return self._grid_random_search(base_model, param_grid, X_train, y_train, strategy, max_trials)
+            return self._grid_random_search(base_model, param_grid, X_train, y_train, strategy, max_trials, progress_callback)
+
+    @staticmethod
+    def _coerce_param_grid(raw: dict) -> dict:
+        """Convert JSON-decoded param values to Python-native types expected by sklearn."""
+        import ast as _ast
+        coerced: dict = {}
+        for param, values in raw.items():
+            parsed = []
+            for v in (values or []):
+                if v is None:
+                    parsed.append(None)
+                elif isinstance(v, list):
+                    # JSON array → tuple (e.g. hidden_layer_sizes)
+                    parsed.append(tuple(v))
+                elif isinstance(v, str) and v.startswith('(') and v.endswith(')'):
+                    try:
+                        parsed.append(_ast.literal_eval(v))
+                    except Exception:
+                        parsed.append(v)
+                else:
+                    parsed.append(v)
+            if parsed:
+                coerced[param] = parsed
+        return coerced
     
     def _bayesian_optimization(self, base_model, param_grid: Dict, X_train: pd.DataFrame, 
-                              y_train: pd.Series, max_trials: int) -> Dict[str, Any]:
+                              y_train: pd.Series, max_trials: int, progress_callback=None) -> Dict[str, Any]:
         """Perform Bayesian optimization using Optuna."""
         import optuna  # type: ignore  # noqa: PLC0415
         def objective(trial):
@@ -537,8 +568,17 @@ class MLTrainingAgent:
             scores = cross_val_score(model, X_train, y_train, cv=cv, scoring=scoring)
             return scores.mean()
         
+        def _optuna_callback(study, trial):
+            if progress_callback and trial.value is not None:
+                progress_callback(
+                    trial.number + 1,
+                    float(trial.value),
+                    float(study.best_value),
+                )
+
         study = optuna.create_study(direction='maximize')
-        study.optimize(objective, n_trials=max_trials, show_progress_bar=False)
+        study.optimize(objective, n_trials=max_trials, show_progress_bar=False,
+                       callbacks=[_optuna_callback])
         
         return {
             "best_params": study.best_params,
@@ -550,7 +590,8 @@ class MLTrainingAgent:
         }
     
     def _grid_random_search(self, base_model, param_grid: Dict, X_train: pd.DataFrame,
-                           y_train: pd.Series, strategy: str, max_trials: int) -> Dict[str, Any]:
+                           y_train: pd.Series, strategy: str, max_trials: int,
+                           progress_callback=None) -> Dict[str, Any]:
         """Perform grid or random search."""
         from sklearn.model_selection import GridSearchCV, RandomizedSearchCV
         
@@ -563,23 +604,43 @@ class MLTrainingAgent:
         
         if strategy == "grid_search":
             search = GridSearchCV(base_model, param_grid, cv=cv, scoring=scoring, n_jobs=-1)
-        else:  # random_search
-            search = RandomizedSearchCV(
-                base_model, param_grid, cv=cv, scoring=scoring, 
-                n_iter=max_trials, random_state=self.random_state, n_jobs=-1
-            )
-        
-        search.fit(X_train, y_train)
-        
-        # Extract optimization history
+            search.fit(X_train, y_train)
+            history = []
+            for i, (params, score) in enumerate(zip(search.cv_results_['params'], search.cv_results_['mean_test_score'])):
+                history.append({"trial": i, "score": score, "params": params})
+                if progress_callback:
+                    progress_callback(i + 1, float(score), float(search.best_score_))
+            return {
+                "best_params": search.best_params_,
+                "best_score": search.best_score_,
+                "optimization_history": history,
+            }
+
+        # random_search (and any other strategy): run one trial at a time so progress
+        # can be reported after each trial.
+        best_score = float('-inf')
+        best_params: Dict[str, Any] = {}
         history = []
-        for i, (params, score) in enumerate(zip(search.cv_results_['params'], search.cv_results_['mean_test_score'])):
-            history.append({"trial": i, "score": score, "params": params})
-        
+        for trial_i in range(max_trials):
+            trial_search = RandomizedSearchCV(
+                base_model, param_grid, cv=cv, scoring=scoring,
+                n_iter=1, random_state=self.random_state + trial_i, n_jobs=1,
+                error_score='raise',
+            )
+            trial_search.fit(X_train, y_train)
+            score = float(trial_search.best_score_)
+            params = trial_search.best_params_
+            history.append({"trial": trial_i, "score": score, "params": params})
+            if score > best_score:
+                best_score = score
+                best_params = params
+            if progress_callback:
+                progress_callback(trial_i + 1, score, best_score)
+
         return {
-            "best_params": search.best_params_,
-            "best_score": search.best_score_,
-            "optimization_history": history
+            "best_params": best_params,
+            "best_score": best_score,
+            "optimization_history": history,
         }
     
     def evaluate_model(self, model_path: str, X_test: pd.DataFrame, y_test: pd.Series,

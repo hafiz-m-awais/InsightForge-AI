@@ -331,7 +331,16 @@ export const usePipelineStore = create<PipelineState>()(
       comparisonResult: null,
       logs: [],
 
-      setCurrentStep: (step) => set({ currentStep: step }),
+      setCurrentStep: (step) =>
+        set((state) => {
+          const status = state.stepStatuses[step] ?? 'locked'
+          // Auto-unlock a locked step so navigation is always allowed
+          const nextStatuses =
+            status === 'locked'
+              ? { ...state.stepStatuses, [step]: 'active' as const }
+              : state.stepStatuses
+          return { currentStep: step, stepStatuses: nextStatuses }
+        }),
       setProvider: (provider) => set({ provider }),
       setProjectName: (name) => set({ projectName: name }),
       setUploadResult: (result) => set({ uploadResult: result }),

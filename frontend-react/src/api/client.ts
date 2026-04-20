@@ -314,6 +314,7 @@ export async function runHyperparameterTuning(params: {
   cv_folds: number
   timeout_minutes: number
   early_stopping_rounds: number
+  custom_param_grid?: Record<string, (number | string | null)[]>
 }) {
   return request<{
     job_id: string

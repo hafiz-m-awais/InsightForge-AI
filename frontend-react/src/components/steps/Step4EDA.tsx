@@ -3,8 +3,8 @@ import { runEDA } from '@/api/client'
 import { usePipelineStore } from '@/store/pipelineStore'
 import {
   AlertTriangle, Loader2, ArrowRight, CheckCircle2,
-  Sparkles, BarChart3, Grid3X3,
-  Table2, Target, GitBranch, Info,
+  Sparkles, Grid3X3,
+  Table2, Target, GitBranch, Info, LayoutDashboard, BarChart2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import ReactMarkdown from 'react-markdown'
@@ -22,9 +22,18 @@ type EDAResult = Awaited<ReturnType<typeof runEDA>>
 
 const PALETTE = ['#3b82f6','#8b5cf6','#10b981','#f59e0b','#ef4444','#06b6d4','#f97316','#ec4899','#14b8a6','#a855f7']
 
+// Theme-aware tooltip style — works in both dark and light mode
+const TOOLTIP_STYLE = {
+  background: 'hsl(var(--card))',
+  border: '1px solid hsl(var(--border))',
+  borderRadius: 6,
+  fontSize: 11,
+  color: 'hsl(var(--card-foreground))',
+}
+
 const INNER_TABS = [
-  { id: 'overview',      label: 'Overview',       icon: BarChart3   },
-  { id: 'distributions', label: 'Distributions',  icon: BarChart3   },
+  { id: 'overview',      label: 'Overview',       icon: LayoutDashboard },
+  { id: 'distributions', label: 'Distributions',  icon: BarChart2   },
   { id: 'correlation',   label: 'Correlation',    icon: Grid3X3     },
   { id: 'quality',       label: 'Quality Table',  icon: Table2      },
   { id: 'bivariate',     label: 'Bivariate',      icon: GitBranch   },
@@ -196,8 +205,8 @@ function OverviewCards({ result, targetCol, taskType }: {
   result: EDAResult; targetCol: string; taskType: string
 }) {
   const summary = result.dataset_summary
-  const td = result.target_distribution
-  const imbalanceAlert = taskType === 'classification' && (td.imbalance_ratio ?? 1) > 3
+  const td = (result.target_distribution ?? {}) as any
+  const imbalanceAlert = taskType === 'classification' && ((td.imbalance_ratio ?? 1) > 3)
 
   return (
     <div className="space-y-5">
@@ -210,7 +219,7 @@ function OverviewCards({ result, targetCol, taskType }: {
           { label: 'Features',        value: String(summary.cols),           sub: `${summary.numeric_cols} num / ${summary.cat_cols} cat`, color: 'text-violet-400' },
           { label: 'Missing',         value: `${summary.overall_missing_pct}%`, sub: `${result.missing_data.length} cols affected`,   color: summary.overall_missing_pct > 10 ? 'text-red-400' : 'text-amber-400' },
           { label: 'Duplicates',      value: summary.duplicate_rows.toLocaleString(), sub: `${summary.duplicate_pct}%`,              color: summary.duplicate_rows > 0 ? 'text-amber-400' : 'text-emerald-400' },
-          { label: 'Skewed Features', value: String(summary.skewed_features), sub: '|skew| > 1',                                     color: summary.skewed_features > 3 ? 'text-amber-400' : 'text-slate-400' },
+          { label: 'Skewed Features', value: String(summary.skewed_features), sub: '|skew| > 1',                                     color: summary.skewed_features > 3 ? 'text-amber-400' : 'text-muted-foreground' },
         ].map((card) => (
           <div key={card.label} className="rounded-xl border border-border bg-card p-4 space-y-1">
             <p className="text-[11px] text-muted-foreground uppercase tracking-wide">{card.label}</p>
@@ -228,12 +237,12 @@ function OverviewCards({ result, targetCol, taskType }: {
           </p>
           {imbalanceAlert && (
             <span className="ml-auto text-[11px] bg-amber-500/15 border border-amber-500/30 text-amber-400 px-2 py-0.5 rounded-full">
-              ⚠ Imbalanced {td.imbalance_ratio?.toFixed(1)}:1
+              ⚠ Imbalanced {td.imbalance_ratio?.toFixed?.(1)}:1
             </span>
           )}
         </div>
         <div className="p-4">
-          {taskType === 'classification' && td.class_counts ? (
+          {taskType === 'classification' && td?.class_counts ? (
             <div className="flex gap-6 items-center">
               <div className="w-36 h-36 shrink-0 min-w-[144px] min-h-[144px]">
                 <ResponsiveContainer width="100%" height="100%" minWidth={144} minHeight={144}>
@@ -247,20 +256,21 @@ function OverviewCards({ result, targetCol, taskType }: {
                         <Cell key={i} fill={PALETTE[i % PALETTE.length]} />
                       ))}
                     </Pie>
-                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
               <div className="space-y-2 flex-1">
                 {Object.entries(td.class_counts).map(([label, count], i) => {
                   const total = td.total ?? 1
-                  const pct = ((count / total) * 100).toFixed(1)
+                  const n = count as number
+                  const pct = ((n / total) * 100).toFixed(1)
                   return (
                     <div key={label} className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: PALETTE[i % PALETTE.length] }} />
-                      <span className="font-mono text-xs text-slate-300 flex-1 truncate">{label}</span>
-                      <span className="text-xs text-muted-foreground">{count.toLocaleString()}</span>
-                      <span className="text-xs font-medium text-slate-300 w-12 text-right">{pct}%</span>
+                      <span className="font-mono text-xs text-foreground flex-1 truncate">{label}</span>
+                      <span className="text-xs text-muted-foreground">{n.toLocaleString()}</span>
+                      <span className="text-xs font-medium text-foreground w-12 text-right">{pct}%</span>
                     </div>
                   )
                 })}
@@ -272,16 +282,16 @@ function OverviewCards({ result, targetCol, taskType }: {
                 {([['Mean', td.mean], ['Median', td.median], ['Std', td.std], ['Min', td.min], ['Max', td.max], ['Skewness', td.skewness]] as [string, number | undefined][]).map(([lbl, val]) => (
                   <div key={lbl} className="rounded-lg bg-muted/30 p-2">
                     <p className="text-[10px] text-muted-foreground">{lbl}</p>
-                    <p className="text-sm font-mono text-slate-200">{val != null ? val.toFixed(3) : '—'}</p>
+                    <p className="text-sm font-mono text-foreground">{val != null ? val.toFixed(3) : '—'}</p>
                   </div>
                 ))}
               </div>
               <div className="h-36">
                 <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
-                  <BarChart data={td.labels.map((l, i) => ({ label: l, count: td.values[i] }))} margin={{ top: 4, right: 4, bottom: 20, left: 0 }}>
+                  <BarChart data={(td.labels ?? []).map((l: string, i: number) => ({ label: l, count: (td.values ?? [])[i] }))} margin={{ top: 4, right: 4, bottom: 20, left: 0 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#64748b' }} angle={-30} textAnchor="end" interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={36} />
-                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
                     <Bar dataKey="count" fill="#3b82f6" radius={[2, 2, 0, 0]} />
                     {td.mean != null && (
                       <ReferenceLine x={td.mean.toFixed(2)} stroke="#f59e0b" strokeDasharray="4 2"
@@ -395,8 +405,8 @@ function DistributionPanel({ distributions, confirmedDrops, toggleDrop, featureS
             )}
           </div>
         </div>
-        {/* Right — chart + stats + AI bar */}
-        <div className="flex-1 flex flex-col min-w-0">
+        {/* Right — chart + stats + AI bar; overflow-y scroll if viewport is short */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-y-auto">
           {activeCol ? (
             <>
               {/* Column name + chart type + dtype + flag */}
@@ -421,14 +431,14 @@ function DistributionPanel({ distributions, confirmedDrops, toggleDrop, featureS
               <div className="flex items-center gap-2 px-4 pb-2 flex-wrap shrink-0">
                 {isNumeric ? (
                   <>
-                    {activeStat?.mean != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-slate-300 font-mono">mean={activeStat.mean.toFixed(2)}</span>}
-                    {activeStat?.std != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-slate-300 font-mono">std={activeStat.std.toFixed(2)}</span>}
-                    {activeStat?.skewness != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-slate-300 font-mono">skew={activeStat.skewness.toFixed(3)}</span>}
-                    {activeStat?.unique != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-slate-400 font-mono">{activeStat.unique} unique</span>}
+                    {activeStat?.mean != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-foreground font-mono">mean={activeStat.mean.toFixed(2)}</span>}
+                    {activeStat?.std != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-foreground font-mono">std={activeStat.std.toFixed(2)}</span>}
+                    {activeStat?.skewness != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-foreground font-mono">skew={activeStat.skewness.toFixed(3)}</span>}
+                    {activeStat?.unique != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-muted-foreground font-mono">{activeStat.unique} unique</span>}
                   </>
                 ) : (
                   <>
-                    {activeStat?.unique != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-slate-300 font-mono">{activeStat.unique} categories</span>}
+                    {activeStat?.unique != null && <span className="text-[10px] bg-muted/30 rounded px-1.5 py-0.5 text-foreground font-mono">{activeStat.unique} categories</span>}
                     {activeStat?.missing_pct != null && activeStat.missing_pct > 0 && (
                       <span className="text-[10px] bg-amber-500/10 rounded px-1.5 py-0.5 text-amber-400 font-mono">{activeStat.missing_pct}% missing</span>
                     )}
@@ -437,13 +447,13 @@ function DistributionPanel({ distributions, confirmedDrops, toggleDrop, featureS
                 )}
               </div>
 
-              {/* Chart */}
-              <div className="px-4 pb-2 shrink-0" style={{ height: 175 }}>
+              {/* Chart — flex to fill available space, min 140px */}
+              <div className="px-4 pb-2 flex-1 min-h-[140px]">
                 <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={1}>
                   <BarChart data={chartData} margin={{ top: 4, right: 4, bottom: 24, left: 0 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#64748b' }} angle={-30} textAnchor="end" interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={36} />
-                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
                     <Bar dataKey="count" radius={[2, 2, 0, 0]}>
                       {chartData.map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                     </Bar>
@@ -623,7 +633,7 @@ function CorrelationPanel({ matrix, corrWithTarget, targetCol }: {
               {insights.topFeatures.map((f) => (
                 <div key={f.col} className="flex items-center gap-2">
                   <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
-                  <span className="font-mono text-[11px] text-slate-300">{f.col}</span>
+                  <span className="font-mono text-[11px] text-foreground">{f.col}</span>
                   <span className="text-[11px] text-muted-foreground">r = {f.correlation.toFixed(3)}</span>
                 </div>
               ))}
@@ -636,7 +646,7 @@ function CorrelationPanel({ matrix, corrWithTarget, targetCol }: {
                 <div key={`${a}-${b}`} className="flex items-start gap-2">
                   <AlertTriangle className="w-3 h-3 text-orange-400 shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-[11px] text-slate-300 font-mono">{a} × {b}</p>
+                    <p className="text-[11px] text-foreground font-mono">{a} × {b}</p>
                     <p className="text-[10px] text-orange-400">r = {val.toFixed(3)}</p>
                     <p className="text-[10px] text-muted-foreground">Consider dropping one</p>
                   </div>
@@ -646,7 +656,7 @@ function CorrelationPanel({ matrix, corrWithTarget, targetCol }: {
           )}
           {insights.lowSignal.length > 0 && (
             <div className="space-y-1.5">
-              <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Low Signal</p>
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Low Signal</p>
               <div className="flex flex-wrap gap-1.5">
                 {insights.lowSignal.map((f) => (
                   <span key={f.col} className="font-mono text-[10px] bg-muted/40 border border-border px-1.5 py-0.5 rounded text-muted-foreground">
@@ -733,7 +743,7 @@ function QualityTable({ featureStats, confirmedDrops, toggleDrop }: {
             {sorted.map((row) => (
               <tr key={row.col} className={cn('border-b border-border last:border-0 hover:bg-muted/10 transition-colors', confirmedDrops.includes(row.col) && 'opacity-40')}>
                 <td className="px-4 py-2">
-                  <span className={cn('font-mono font-medium', row.is_target ? 'text-primary' : 'text-slate-300')}>
+                  <span className={cn('font-mono font-medium', row.is_target ? 'text-primary' : 'text-foreground')}>
                     {row.col}
                     {row.is_target && <span className="ml-1 text-[9px] bg-primary/20 text-primary px-1 rounded">target</span>}
                   </span>
@@ -813,7 +823,7 @@ function BivariatePanel({ distributions, corrWithTarget, taskType, targetCol, cl
           return (
             <div key={col} className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border flex items-center justify-between">
-                <span className="font-mono text-xs text-slate-300">{col}</span>
+                <span className="font-mono text-xs text-foreground">{col}</span>
                 <span className={cn('text-[11px] font-mono', corr >= 0 ? 'text-blue-400' : 'text-red-400')}>r = {corr.toFixed(3)}</span>
               </div>
               <div className="p-3 h-40">
@@ -821,7 +831,7 @@ function BivariatePanel({ distributions, corrWithTarget, taskType, targetCol, cl
                   <BarChart data={data} margin={{ top: 4, right: 4, bottom: 16, left: 0 }}>
                     <XAxis dataKey="label" tick={{ fontSize: 8, fill: '#64748b' }} interval="preserveStartEnd" angle={-20} textAnchor="end" />
                     <YAxis tick={{ fontSize: 8, fill: '#64748b' }} width={30} />
-                    <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 10 }} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
                     <Bar dataKey="count" fill={PALETTE[fi % PALETTE.length]} radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -840,7 +850,7 @@ function BivariatePanel({ distributions, corrWithTarget, taskType, targetCol, cl
               <BarChart data={Object.entries(classBalance).map(([k, v]) => ({ label: k, count: v }))} margin={{ top: 4, right: 4, bottom: 16, left: 0 }}>
                 <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} />
                 <YAxis tick={{ fontSize: 9, fill: '#64748b' }} width={36} />
-                <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 6, fontSize: 11 }} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Bar dataKey="count" radius={[3, 3, 0, 0]}>
                   {Object.keys(classBalance).map((_, i) => <Cell key={i} fill={PALETTE[i % PALETTE.length]} />)}
                 </Bar>
@@ -867,7 +877,7 @@ function AIInsightsPanel({ insights, confirmedDrops, toggleDrop }: {
           <Sparkles className="w-5 h-5 text-primary" />
           <p className="text-sm font-semibold text-primary">AI EDA Insights</p>
         </div>
-        <div className="text-sm text-slate-300 prose prose-invert prose-sm max-w-none">
+        <div className="text-sm text-foreground prose prose-sm max-w-none prose-neutral dark:prose-invert">
           <ReactMarkdown rehypePlugins={[rehypeSanitize]}>{insights}</ReactMarkdown>
         </div>
       </div>

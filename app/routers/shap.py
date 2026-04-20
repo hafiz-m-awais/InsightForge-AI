@@ -65,12 +65,10 @@ def _run_shap(model, preprocessor, features: dict) -> dict:
     if preprocessor:
         numeric_cols   = preprocessor.get("numeric_columns_seen", [])
         imputation     = preprocessor.get("imputation_values", {})
-        encoders       = preprocessor.get("categorical_encoders", {})
         fo             = preprocessor.get("feature_order", [])
         fe_transforms  = preprocessor.get("fe_transforms", {})
         scaler         = preprocessor.get("scaler")
         scaler_cols    = preprocessor.get("scaler_columns", [])
-
         # FE label encoders
         for col, le in fe_transforms.get("label_encoders", {}).items():
             if col in row_data and row_data[col] is not None and row_data[col] != "":

@@ -4,7 +4,7 @@ import {
   Upload, BarChart2, Target, TrendingUp, Wrench, Layers, Shield,
   Cpu, Settings2, Trophy, Medal, Save, FileText, CheckCircle2,
   Circle, Lock, ChevronRight, Pencil, Check, FolderOpen, Play,
-  PanelLeftClose, PanelLeftOpen, LayoutDashboard, Filter,
+  PanelLeftClose, PanelLeftOpen, LayoutDashboard, Filter, SkipForward,
 } from 'lucide-react'
 import { usePipelineStore } from '@/store/pipelineStore'
 import type { StepStatus } from '@/store/pipelineStore'
@@ -85,14 +85,15 @@ const GROUPS: { id: string; label: string; steps: typeof STEPS }[] = [
   { id: 'deploy',  label: 'Deploy',      steps: STEPS.filter(s => s.id >= 13) },
 ]
 
-function StatusIcon({ status }: { status: StepStatus }) {
+function StatusIcon({ status, isSkippable }: { status: StepStatus; isSkippable?: boolean }) {
   if (status === 'completed') return <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
   if (status === 'active') return <ChevronRight className="w-3.5 h-3.5 text-primary shrink-0" />
+  if (isSkippable) return <SkipForward className="w-3 h-3 text-muted-foreground/40 shrink-0" />
   return <Lock className="w-3 h-3 text-slate-600 shrink-0 opacity-50" />
 }
 
 export function Sidebar() {
-  const { currentStep, stepStatuses, setCurrentStep } = usePipelineStore()
+  const { currentStep, stepStatuses, setCurrentStep, uploadResult } = usePipelineStore()
   const [collapsed, setCollapsed] = useState(false)
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
     () => Object.fromEntries(GROUPS.map(g => [g.id, true]))
@@ -186,19 +187,20 @@ export function Sidebar() {
                 {group.steps.map(step => {
                   const status = stepStatuses[step.id] ?? 'locked'
                   const isActive = currentStep === step.id
-                  const clickable = status === 'completed' || status === 'active'
+                  const isSkippable = status === 'locked' && !!uploadResult && step.id > 1
+                  const clickable = status === 'completed' || status === 'active' || isSkippable
                   const Icon = step.icon
                   return (
                     <button
                       key={step.id}
                       disabled={!clickable}
                       onClick={() => clickable && setCurrentStep(step.id)}
-                      title={`${step.id}. ${step.name}`}
+                      title={isSkippable ? `Jump to step ${step.id}: ${step.name}` : `${step.id}. ${step.name}`}
                       className={cn(
                         'w-full flex items-center justify-center rounded-md py-2 transition-all',
-                        isActive    ? 'bg-primary/15 text-primary'
-                        : clickable ? 'text-foreground/60 hover:bg-accent hover:text-foreground'
-                                    : 'text-foreground/20 cursor-not-allowed'
+                        isActive      ? 'bg-primary/15 text-primary'
+                        : clickable   ? 'text-foreground/60 hover:bg-accent hover:text-foreground'
+                                      : 'text-foreground/20 cursor-not-allowed'
                       )}
                     >
                       <Icon className="w-4 h-4" />
@@ -224,7 +226,8 @@ export function Sidebar() {
               {open && group.steps.map(step => {
                 const status = stepStatuses[step.id] ?? 'locked'
                 const isActive = currentStep === step.id
-                const clickable = status === 'completed' || status === 'active'
+                const isSkippable = status === 'locked' && !!uploadResult && step.id > 1
+                const clickable = status === 'completed' || status === 'active' || isSkippable
                 const Icon = step.icon
 
                 return (
@@ -232,12 +235,15 @@ export function Sidebar() {
                     key={step.id}
                     disabled={!clickable}
                     onClick={() => clickable && setCurrentStep(step.id)}
+                    title={isSkippable ? 'Jump to this step' : undefined}
                     className={cn(
                       'w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-all ml-1.5',
                       isActive
                         ? 'bg-primary/15 text-primary font-medium'
                         : status === 'completed'
                         ? 'text-foreground/80 hover:bg-accent cursor-pointer'
+                        : isSkippable
+                        ? 'text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer'
                         : 'text-muted-foreground/40 cursor-not-allowed'
                     )}
                   >
@@ -245,11 +251,12 @@ export function Sidebar() {
                       'flex items-center justify-center w-4 h-4 rounded text-[9px] font-bold shrink-0',
                       isActive ? 'bg-primary text-primary-foreground'
                         : status === 'completed' ? 'bg-emerald-500/20 text-emerald-400'
+                        : isSkippable ? 'bg-muted/40 text-muted-foreground/60'
                         : 'bg-muted text-muted-foreground/40'
                     )}>{step.id}</span>
                     <Icon className="w-3 h-3 shrink-0" />
                     <span className="flex-1 truncate">{step.name}</span>
-                    <StatusIcon status={status} />
+                    <StatusIcon status={status} isSkippable={isSkippable} />
                   </button>
                 )
               })}

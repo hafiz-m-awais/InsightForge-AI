@@ -2,11 +2,32 @@ import { usePipelineStore } from '@/store/pipelineStore'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { LogBar } from '@/components/layout/LogBar'
 import { Topbar } from '@/components/layout/Topbar'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Dashboard } from '@/components/steps/Dashboard'
 import { Step1Upload } from '@/components/steps/Step1Upload'
 import { Step2Profile } from '@/components/steps/Step2Profile'
 import { Step3Target } from '@/components/steps/Step3Target'
 import { Step4EDA } from '@/components/steps/Step4EDA'
+import React from 'react'
+
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 32, fontFamily: 'monospace', whiteSpace: 'pre-wrap', color: 'red', background: '#111', minHeight: '100vh' }}>
+          <b>App crashed:</b>{'\n\n'}{String(this.state.error)}{'\n\n'}
+          {(this.state.error as any).stack}
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
 import { Step5Cleaning } from '@/components/steps/Step5Cleaning'
 import { Step6FeatureEngineering } from '@/components/steps/Step6FeatureEngineering'
 import { Step7ModelSelection } from '@/components/steps/Step7ModelSelection'
@@ -30,8 +51,42 @@ function ComingSoon({ step }: { step: number }) {
       <div className="text-4xl mb-4">🚧</div>
       <h2 className="text-lg font-semibold text-foreground">Step {step} — {STEP_NAMES[step] ?? 'Coming Soon'}</h2>
       <p className="text-sm text-muted-foreground mt-2 max-w-sm">
-        This step is being implemented. Complete the previous steps first and this panel will unlock.
+      This step is still being built — check back soon.
       </p>
+    </div>
+  )
+}
+
+const STEP_NAMES_NAV: Record<number, string> = {
+  1: 'Data Upload',       2: 'Data Profiling',       3: 'Target Selection',
+  4: 'EDA Analysis',      5: 'Data Cleaning',         6: 'Feature Engineering',
+  7: 'Feature Selection', 8: 'Leakage Detection',     9: 'Model Selection',
+  10: 'Training & Tuning', 11: 'Evaluation',          12: 'Model Comparison',
+  13: 'Model Saving',     14: 'Report Generation',    15: 'Prediction Playground',
+}
+
+function StepNavBar() {
+  const { currentStep, setCurrentStep } = usePipelineStore()
+  if (currentStep === 0) return null
+  return (
+    <div className="flex-none flex items-center justify-between px-5 py-1.5 border-t border-border bg-card text-xs">
+      <button
+        onClick={() => setCurrentStep(currentStep - 1)}
+        disabled={currentStep <= 1}
+        className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        <ChevronLeft className="w-3.5 h-3.5" /> Back
+      </button>
+      <span className="text-muted-foreground tabular-nums">
+        Step {currentStep} / 15 — {STEP_NAMES_NAV[currentStep] ?? ''}
+      </span>
+      <button
+        onClick={() => setCurrentStep(currentStep + 1)}
+        disabled={currentStep >= 15}
+        className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        Next <ChevronRight className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }
@@ -69,10 +124,13 @@ function App() {
         <main className="flex-1 overflow-y-auto">
           <StepContent step={currentStep} />
         </main>
+        <StepNavBar />
         <LogBar />
       </div>
     </div>
   )
 }
 
-export default App
+export default function AppWithBoundary() {
+  return <ErrorBoundary><App /></ErrorBoundary>
+}

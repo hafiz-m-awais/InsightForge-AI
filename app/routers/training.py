@@ -2,7 +2,6 @@
 Model training and hyperparameter tuning routes.
 """
 from fastapi import APIRouter, HTTPException
-import os
 import uuid
 import asyncio
 import logging
@@ -160,6 +159,7 @@ class HyperparameterTuningRequest(BaseModel):
     cv_folds: int = 5
     timeout_minutes: int = 30
     early_stopping_rounds: int = 10
+    custom_param_grid: dict | None = None
 
 
 @router.post("/hyperparameter-tuning")
@@ -191,6 +191,7 @@ async def hyperparameter_tuning(request: HyperparameterTuningRequest):
         )
 
         import time as _time
+        import functools as _functools
         job_id = f"tune_{uuid.uuid4().hex[:8]}"
         start_time = _time.time()
 
@@ -204,10 +205,22 @@ async def hyperparameter_tuning(request: HyperparameterTuningRequest):
         }
         _tuning_progress["latest"] = _tuning_progress[job_id]
 
-        optimization_results = await loop.run_in_executor(
-            _executor, ml_agent.optimize_hyperparameters, X_train, y_train,
+        def _progress_cb(trial_num: int, score: float, best_score: float) -> None:
+            _tuning_progress[job_id].update({
+                "current_trial": trial_num,
+                "best_score": best_score,
+                "elapsed_time": round(_time.time() - start_time, 1),
+            })
+            _tuning_progress["latest"] = _tuning_progress[job_id]
+
+        optimize_fn = _functools.partial(
+            ml_agent.optimize_hyperparameters,
+            X_train, y_train,
             request.model_name, request.strategy, request.max_trials,
+            _progress_cb,
+            request.custom_param_grid,
         )
+        optimization_results = await loop.run_in_executor(_executor, optimize_fn)
 
         elapsed = round(_time.time() - start_time, 1)
         result = {
@@ -252,3 +265,51 @@ async def get_training_progress(job_id: str = ""):
         return progress
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Default hyperparameter grids — mirrors ml_training_agent._get_parameter_grids()
+_DEFAULT_PARAM_GRIDS: dict = {
+    "LogisticRegression": {
+        "C": [0.1, 1.0, 10.0, 100.0],
+        "penalty": ["l1", "l2"],
+        "solver": ["liblinear", "saga"],
+    },
+    "RandomForest": {
+        "n_estimators": [50, 100, 200],
+        "max_depth": [3, 5, 10, None],
+        "min_samples_split": [2, 5, 10],
+        "min_samples_leaf": [1, 2, 4],
+    },
+    "GradientBoosting": {
+        "n_estimators": [50, 100, 200],
+        "learning_rate": [0.01, 0.1, 0.2],
+        "max_depth": [3, 5, 7],
+        "subsample": [0.8, 1.0],
+    },
+    "SVM": {
+        "C": [0.1, 1.0, 10.0],
+        "kernel": ["rbf", "linear"],
+        "gamma": ["scale", "auto"],
+    },
+    "NeuralNetwork": {
+        "alpha": [0.0001, 0.001, 0.01],
+        "learning_rate": ["constant", "adaptive"],
+    },
+    "XGBoost": {
+        "n_estimators": [50, 100, 200],
+        "max_depth": [3, 5, 7],
+        "learning_rate": [0.01, 0.1, 0.2],
+        "subsample": [0.8, 1.0],
+    },
+}
+
+
+@router.get("/hyperparameter-defaults")
+async def get_hyperparameter_defaults(model_name: str = ""):
+    """Return the default hyperparameter grid for a model (or all models)."""
+    if model_name:
+        grid = _DEFAULT_PARAM_GRIDS.get(model_name)
+        if grid is None:
+            raise HTTPException(status_code=404, detail=f"No defaults for model '{model_name}'")
+        return {"model_name": model_name, "param_grid": grid}
+    return {"models": list(_DEFAULT_PARAM_GRIDS.keys()), "grids": _DEFAULT_PARAM_GRIDS}
