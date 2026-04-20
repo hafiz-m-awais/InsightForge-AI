@@ -381,6 +381,7 @@ export const usePipelineStore = create<PipelineState>()(
           stepStatuses: initialStepStatuses,
           uploadResult: null,
           profileResult: null,
+          problemStatement: '',
           targetCol: null,
           taskType: null,
           columnsToExclude: [],

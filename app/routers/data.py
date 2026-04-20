@@ -240,18 +240,28 @@ async def analyze_target(request: AnalyzeTargetRequest):
     )
 
     system_prompt = (
-        "You are a senior data scientist. Critically analyze datasets and provide structured insights. "
+        "You are a senior data scientist. Critically analyze datasets and suggest ML prediction tasks. "
         "Return a JSON object with EXACTLY this structure (no markdown, raw JSON only):\n"
         "{\n"
-        "  \"analysis_summary\": \"2-3 sentence critical assessment\",\n"
+        "  \"analysis_summary\": \"2-3 sentence critical assessment of the dataset\",\n"
         "  \"possible_problems\": [{\"title\": \"\", \"description\": \"\", \"recommended_target\": \"\", \"task_type\": \"\", \"confidence\": \"\", \"reasoning\": \"\"}],\n"
         "  \"primary_suggestion\": {\"target_col\": \"\", \"task_type\": \"\", \"explanation\": \"\"},\n"
         "  \"problem_statement_insight\": \"\",\n"
         "  \"data_quality_flags\": [],\n"
         "  \"columns_to_exclude_suggestion\": []\n"
         "}\n"
-        "Rules: possible_problems should have 2-4 items; recommended_target must be an exact column name; "
-        "primary_suggestion must address any given problem statement; be critical about data quality."
+        "CRITICAL RULES:\n"
+        "1. possible_problems must ONLY contain ML PREDICTION tasks (what the user can predict/forecast). "
+        "Each item describes a different column that could be a prediction target. "
+        "task_type must be one of: classification, regression, timeseries. "
+        "DO NOT list data quality issues (missing values, high cardinality, etc.) as possible_problems — those go in data_quality_flags.\n"
+        "2. recommended_target must be an exact column name from the dataset schema.\n"
+        "3. confidence must be one of: high, medium, low.\n"
+        "4. primary_suggestion must pick the most meaningful prediction target. "
+        "If a problem_statement is given, align primary_suggestion to it. "
+        "Otherwise pick the column most likely to be a prediction target (e.g. outcome/label/target/status columns, not ID or free-text columns).\n"
+        "5. data_quality_flags: list 2-5 specific data quality concerns (missing values, imbalance, leakage risk, high cardinality, etc.).\n"
+        "6. columns_to_exclude_suggestion: list columns that are IDs, URLs, free-text, or otherwise useless for ML."
     )
     human_prompt = (
         f"Dataset: {rows} rows × {cols} columns\n"
